@@ -1,8 +1,10 @@
 /**
  * Mission Control Panel
  *
- * Unified full-screen dashboard with tabbed navigation.
- * Features inline mission progress cards in chat (like Cursor's tool execution view).
+ * Main unified interface with three tabs:
+ * - Chat: Development and Planning modes with inline mission progress cards
+ * - Tasks: Detailed task information, hierarchy, and mission history
+ * - Settings: Full configuration synced with VS Code settings
  */
 
 import * as vscode from 'vscode';
@@ -18,7 +20,7 @@ interface ChatMessage {
   content: string;
   timestamp: number;
   streaming?: boolean;
-  missionId?: string; // Links message to a mission for inline progress
+  missionId?: string;
 }
 
 export class MissionControlPanel {
@@ -97,23 +99,48 @@ export class MissionControlPanel {
 
   private async sendInitialState(): Promise<void> {
     this.sendStateUpdate(this.core.getHiveState());
-
-    const config = this.configManager.getConfig();
-    this.postMessage({
-      type: 'configUpdate',
-      payload: {
-        approvalMode: config.approvalMode,
-        maxConcurrentWorkers: config.hierarchy.maxConcurrentWorkers,
-        enableSpecialists: config.hierarchy.enableSpecialists,
-        glmConfigured: this.configManager.isGLMConfigured(),
-      },
-    });
+    await this.sendFullConfig();
 
     const validator = getClaudeCliValidator();
+    const config = this.configManager.getConfig();
     const cliStatus = await validator.validate(config.claude.cliPath);
     this.postMessage({ type: 'cliStatus', payload: cliStatus });
 
     this.postMessage({ type: 'messagesUpdate', payload: this.messages });
+  }
+
+  private async sendFullConfig(): Promise<void> {
+    const config = this.configManager.getConfig();
+    this.postMessage({
+      type: 'fullConfigUpdate',
+      payload: {
+        // General
+        enabled: config.enabled,
+        approvalMode: config.approvalMode,
+        // Claude
+        claudeCliPath: config.claude.cliPath,
+        claudeMaxOutputTokens: config.claude.maxOutputTokens,
+        // GLM
+        glmEndpoint: config.glm.endpoint,
+        glmApiKey: config.glm.apiKey ? '********' : '',
+        glmModel: config.glm.model,
+        glmMaxTokens: config.glm.maxTokens,
+        glmTemperature: config.glm.temperature,
+        glmConfigured: this.configManager.isGLMConfigured(),
+        // Hierarchy
+        maxConcurrentWorkers: config.hierarchy.maxConcurrentWorkers,
+        enableSpecialists: config.hierarchy.enableSpecialists,
+        complexityThreshold: config.hierarchy.complexityThreshold,
+        // Quota
+        quotaWarningThreshold: config.quota.warningThreshold,
+        quotaHardStopThreshold: config.quota.hardStopThreshold,
+        // UI
+        showStatusBar: config.ui.showStatusBar,
+        autoOpenMissionControl: config.ui.autoOpenMissionControl,
+        // Storage
+        maxHistoryDays: config.storage.maxHistoryDays,
+      },
+    });
   }
 
   private async handleMessage(message: WebviewMessage): Promise<void> {
@@ -180,14 +207,14 @@ export class MissionControlPanel {
     this.messages.push(userMsg);
     this.postMessage({ type: 'addMessage', payload: userMsg });
 
-    if (mode === 'mission') {
-      await this.handleMissionMode(content);
+    if (mode === 'planning') {
+      await this.handlePlanningMode(content);
     } else {
-      await this.handleChatMode(content, mode);
+      await this.handleDevelopmentMode(content);
     }
   }
 
-  private async handleChatMode(content: string, mode: string): Promise<void> {
+  private async handleDevelopmentMode(content: string): Promise<void> {
     const assistantId = this.generateId();
     const assistantMsg: ChatMessage = {
       id: assistantId,
@@ -201,24 +228,19 @@ export class MissionControlPanel {
     this.postMessage({ type: 'addMessage', payload: assistantMsg });
 
     try {
-      const systemPrompt = this.getSystemPrompt(mode);
-      const fullPrompt = systemPrompt ? `${systemPrompt}\n\n---\n\nUser Request:\n${content}` : content;
-      await this.streamClaudeResponse(fullPrompt, assistantId);
+      await this.streamClaudeResponse(content, assistantId);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.updateStreamingMessage(assistantId, `Error: ${errorMessage}`, false);
     }
   }
 
-  private async handleMissionMode(content: string): Promise<void> {
-    // Create a message that will show inline progress
+  private async handlePlanningMode(content: string): Promise<void> {
     const missionMsgId = this.generateId();
 
     try {
-      // Start the mission
       const mission = await this.core.submitPlanningDocument(content);
 
-      // Add assistant message linked to this mission for inline progress
       const assistantMsg: ChatMessage = {
         id: missionMsgId,
         role: 'assistant',
@@ -375,36 +397,38 @@ export class MissionControlPanel {
   private async handleConfigUpdate(payload: Record<string, unknown>): Promise<void> {
     const config = vscode.workspace.getConfiguration('altercode');
 
-    if (payload.approvalMode !== undefined) {
-      await config.update('approvalMode', payload.approvalMode, true);
-    }
-    if (payload.maxConcurrentWorkers !== undefined) {
-      await config.update('hierarchy.maxConcurrentWorkers', payload.maxConcurrentWorkers, true);
-    }
-    if (payload.enableSpecialists !== undefined) {
-      await config.update('hierarchy.enableSpecialists', payload.enableSpecialists, true);
+    // Map payload keys to VS Code settings paths
+    const settingsMap: Record<string, string> = {
+      enabled: 'enabled',
+      approvalMode: 'approvalMode',
+      claudeCliPath: 'claude.cliPath',
+      claudeMaxOutputTokens: 'claude.maxOutputTokens',
+      glmEndpoint: 'glm.endpoint',
+      glmApiKey: 'glm.apiKey',
+      glmModel: 'glm.model',
+      glmMaxTokens: 'glm.maxTokens',
+      glmTemperature: 'glm.temperature',
+      maxConcurrentWorkers: 'hierarchy.maxConcurrentWorkers',
+      enableSpecialists: 'hierarchy.enableSpecialists',
+      complexityThreshold: 'hierarchy.complexityThreshold',
+      quotaWarningThreshold: 'quota.warningThreshold',
+      quotaHardStopThreshold: 'quota.hardStopThreshold',
+      showStatusBar: 'ui.showStatusBar',
+      autoOpenMissionControl: 'ui.autoOpenMissionControl',
+      maxHistoryDays: 'storage.maxHistoryDays',
+    };
+
+    for (const [key, value] of Object.entries(payload)) {
+      const settingPath = settingsMap[key];
+      if (settingPath && value !== undefined) {
+        // Don't save masked API key
+        if (key === 'glmApiKey' && value === '********') continue;
+        await config.update(settingPath, value, true);
+      }
     }
 
-    this.postMessage({
-      type: 'configUpdate',
-      payload: {
-        approvalMode: payload.approvalMode ?? this.configManager.getConfig().approvalMode,
-        maxConcurrentWorkers: payload.maxConcurrentWorkers ?? this.configManager.getConfig().hierarchy.maxConcurrentWorkers,
-        enableSpecialists: payload.enableSpecialists ?? this.configManager.getConfig().hierarchy.enableSpecialists,
-        glmConfigured: this.configManager.isGLMConfigured(),
-      },
-    });
-  }
-
-  private getSystemPrompt(mode: string): string {
-    switch (mode) {
-      case 'code':
-        return 'You are a coding assistant. Provide clear, concise code examples. Use markdown code blocks.';
-      case 'architect':
-        return 'You are a software architect. Focus on system design, scalability, and best practices.';
-      default:
-        return '';
-    }
+    // Send back full config
+    await this.sendFullConfig();
   }
 
   private sendStateUpdate(state: HiveState): void {
@@ -460,10 +484,7 @@ export class MissionControlPanel {
       flex-shrink: 0;
     }
 
-    .tabs {
-      display: flex;
-      flex: 1;
-    }
+    .tabs { display: flex; flex: 1; }
 
     .tab {
       padding: 10px 20px;
@@ -474,16 +495,22 @@ export class MissionControlPanel {
       font-size: 12px;
       opacity: 0.6;
       border-bottom: 2px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .tab:hover { opacity: 0.8; }
     .tab.active { opacity: 1; border-bottom-color: var(--vscode-focusBorder); }
 
-    .header-actions {
-      display: flex;
-      gap: 4px;
-      padding: 0 12px;
+    .tab-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      background: var(--vscode-badge-background);
+      color: var(--vscode-badge-foreground);
     }
+
+    .header-actions { display: flex; gap: 4px; padding: 0 12px; }
 
     .header-btn {
       padding: 4px 8px;
@@ -496,7 +523,6 @@ export class MissionControlPanel {
     }
 
     .header-btn:hover { opacity: 1; }
-    .header-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
     /* Tab content */
     .tab-content { flex: 1; overflow: hidden; display: none; flex-direction: column; }
@@ -556,7 +582,7 @@ export class MissionControlPanel {
     }
     .message-content pre code { background: none; padding: 0; }
 
-    /* Inline Mission Progress Card */
+    /* Mission Progress Card */
     .mission-card {
       border: 1px solid var(--vscode-panel-border);
       margin: 8px 0;
@@ -572,63 +598,18 @@ export class MissionControlPanel {
       cursor: pointer;
     }
 
-    .mission-card-header:hover {
-      background: var(--vscode-list-hoverBackground);
-    }
+    .mission-card-header:hover { background: var(--vscode-list-hoverBackground); }
 
-    .mission-card-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-weight: 500;
-    }
+    .mission-card-title { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+    .mission-card-status { font-size: 11px; color: var(--vscode-descriptionForeground); }
+    .mission-card-progress { display: flex; align-items: center; gap: 8px; }
 
-    .mission-card-status {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-    }
+    .progress-bar { width: 100px; height: 4px; background: var(--vscode-progressBar-background); }
+    .progress-fill { height: 100%; background: var(--vscode-button-background); transition: width 0.2s; }
+    .progress-text { font-size: 11px; color: var(--vscode-descriptionForeground); min-width: 35px; }
 
-    .mission-card-progress {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .progress-bar {
-      width: 100px;
-      height: 4px;
-      background: var(--vscode-progressBar-background);
-    }
-
-    .progress-fill {
-      height: 100%;
-      background: var(--vscode-button-background);
-      transition: width 0.2s;
-    }
-
-    .progress-text {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      min-width: 35px;
-    }
-
-    .mission-card-body {
-      padding: 12px;
-      display: none;
-    }
-
-    .mission-card.expanded .mission-card-body {
-      display: block;
-    }
-
-    .mission-card-body.collapsed {
-      display: none;
-    }
-
-    /* Hierarchy tree */
-    .hierarchy-section {
-      margin-bottom: 12px;
-    }
+    .mission-card-body { padding: 12px; display: none; }
+    .mission-card.expanded .mission-card-body { display: block; }
 
     .section-label {
       font-size: 10px;
@@ -638,72 +619,37 @@ export class MissionControlPanel {
       margin-bottom: 6px;
     }
 
-    .hierarchy-node {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 0;
-      font-size: 12px;
-    }
+    .hierarchy-section { margin-bottom: 12px; }
 
+    .hierarchy-node { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
     .hierarchy-node.level-1 { padding-left: 16px; }
     .hierarchy-node.level-2 { padding-left: 32px; }
     .hierarchy-node.level-3 { padding-left: 48px; }
     .hierarchy-node.level-4 { padding-left: 64px; }
-    .hierarchy-node.level-5 { padding-left: 80px; }
 
-    .node-connector {
-      color: var(--vscode-panel-border);
-    }
+    .node-connector { color: var(--vscode-panel-border); }
+    .node-role { flex: 1; }
 
-    .node-role {
-      flex: 1;
-    }
-
-    .node-status {
-      font-size: 10px;
-      padding: 1px 6px;
-      background: var(--vscode-badge-background);
-      color: var(--vscode-badge-foreground);
-    }
-
+    .node-status { font-size: 10px; padding: 1px 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
     .node-status.busy { background: var(--vscode-testing-iconQueued); }
     .node-status.idle { background: var(--vscode-descriptionForeground); }
-    .node-status.done { background: var(--vscode-testing-iconPassed); }
 
-    /* Tasks list */
     .tasks-section { margin-top: 12px; }
 
-    .task-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 0;
-      font-size: 12px;
-    }
+    .task-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
 
-    .task-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-    }
-
+    .task-dot { width: 6px; height: 6px; border-radius: 50%; }
     .task-dot.running { background: var(--vscode-charts-blue); animation: pulse 1s infinite; }
     .task-dot.pending { background: var(--vscode-charts-yellow); }
-    .task-dot.done { background: var(--vscode-charts-green); }
+    .task-dot.completed { background: var(--vscode-charts-green); }
+    .task-dot.failed { background: var(--vscode-charts-red); }
 
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
     .task-title { flex: 1; }
+    .task-level { font-size: 10px; color: var(--vscode-descriptionForeground); }
 
-    /* Mission controls */
-    .mission-controls {
-      display: flex;
-      gap: 8px;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--vscode-panel-border);
-    }
+    .mission-controls { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--vscode-panel-border); }
 
     .mission-btn {
       padding: 4px 12px;
@@ -718,24 +664,16 @@ export class MissionControlPanel {
     .mission-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* Input area */
-    .input-area {
-      padding: 12px 16px;
-      border-top: 1px solid var(--vscode-panel-border);
-      background: var(--vscode-sideBar-background);
-    }
+    .input-area { padding: 12px 16px; border-top: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); }
 
-    .mode-selector {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 8px;
-    }
+    .mode-selector { display: flex; gap: 4px; margin-bottom: 8px; }
 
     .mode-btn {
-      padding: 4px 12px;
+      padding: 6px 16px;
       background: none;
       border: 1px solid var(--vscode-input-border);
       color: var(--vscode-foreground);
-      font-size: 11px;
+      font-size: 12px;
       cursor: pointer;
       opacity: 0.6;
     }
@@ -778,17 +716,56 @@ export class MissionControlPanel {
     .send-btn:hover { background: var(--vscode-button-hoverBackground); }
     .send-btn.cancel { background: var(--vscode-errorForeground); }
 
-    /* Settings tab */
-    .settings-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px;
-      max-width: 600px;
+    /* Tasks Tab */
+    .tasks-container { flex: 1; overflow-y: auto; padding: 16px; }
+
+    .tasks-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .tasks-title { font-size: 14px; font-weight: 500; }
+
+    .mission-summary {
+      padding: 12px;
+      background: var(--vscode-sideBar-background);
+      border: 1px solid var(--vscode-panel-border);
+      margin-bottom: 16px;
     }
 
-    .settings-section {
-      margin-bottom: 24px;
+    .mission-summary-title { font-weight: 500; margin-bottom: 8px; }
+
+    .mission-stats { display: flex; gap: 16px; font-size: 12px; }
+    .stat-item { display: flex; align-items: center; gap: 6px; }
+    .stat-value { font-weight: 500; }
+
+    .task-list { margin-top: 16px; }
+
+    .task-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--vscode-panel-border);
     }
+
+    .task-item:hover { background: var(--vscode-list-hoverBackground); }
+
+    .task-info { flex: 1; min-width: 0; }
+    .task-name { font-weight: 500; margin-bottom: 2px; }
+    .task-meta { font-size: 11px; color: var(--vscode-descriptionForeground); }
+
+    .task-status-badge {
+      font-size: 10px;
+      padding: 2px 8px;
+      text-transform: uppercase;
+    }
+
+    .task-status-badge.running { background: var(--vscode-testing-iconQueued); color: white; }
+    .task-status-badge.pending { background: var(--vscode-descriptionForeground); color: white; }
+    .task-status-badge.completed { background: var(--vscode-testing-iconPassed); color: white; }
+    .task-status-badge.failed { background: var(--vscode-testing-iconFailed); color: white; }
+
+    /* Settings Tab */
+    .settings-container { flex: 1; overflow-y: auto; padding: 20px; max-width: 700px; }
+
+    .settings-section { margin-bottom: 28px; }
 
     .settings-section-title {
       font-size: 11px;
@@ -805,13 +782,14 @@ export class MissionControlPanel {
       justify-content: space-between;
       align-items: center;
       padding: 10px 0;
+      gap: 16px;
     }
 
-    .setting-info { flex: 1; }
+    .setting-info { flex: 1; min-width: 0; }
     .setting-label { font-size: 13px; }
     .setting-desc { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 2px; }
 
-    select, input[type="number"] {
+    select, input[type="number"], input[type="text"] {
       padding: 6px 10px;
       background: var(--vscode-dropdown-background);
       color: var(--vscode-dropdown-foreground);
@@ -819,7 +797,9 @@ export class MissionControlPanel {
       font-size: 12px;
     }
 
-    input[type="number"] { width: 70px; }
+    input[type="number"] { width: 80px; }
+    input[type="text"] { width: 200px; }
+    input[type="text"].wide { width: 300px; }
 
     .toggle {
       width: 36px;
@@ -828,6 +808,7 @@ export class MissionControlPanel {
       border: 1px solid var(--vscode-input-border);
       cursor: pointer;
       position: relative;
+      flex-shrink: 0;
     }
 
     .toggle::after {
@@ -855,12 +836,7 @@ export class MissionControlPanel {
       margin-bottom: 16px;
     }
 
-    .cli-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-    }
-
+    .cli-dot { width: 8px; height: 8px; border-radius: 50%; }
     .cli-dot.ok { background: var(--vscode-testing-iconPassed); }
     .cli-dot.warning { background: var(--vscode-testing-iconQueued); }
     .cli-dot.error { background: var(--vscode-testing-iconFailed); }
@@ -894,12 +870,7 @@ export class MissionControlPanel {
       background: var(--vscode-statusBar-background);
     }
 
-    .status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-    }
-
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; }
     .status-dot.ready { background: var(--vscode-testing-iconPassed); }
     .status-dot.busy { background: var(--vscode-testing-iconQueued); animation: pulse 1.5s infinite; }
 
@@ -913,6 +884,7 @@ export class MissionControlPanel {
   <div class="header">
     <div class="tabs">
       <button class="tab active" data-tab="chat">Chat</button>
+      <button class="tab" data-tab="tasks">Tasks<span class="tab-badge" id="taskBadge" style="display:none">0</span></button>
       <button class="tab" data-tab="settings">Settings</button>
     </div>
     <div class="header-actions">
@@ -926,21 +898,29 @@ export class MissionControlPanel {
       <div class="messages" id="messages">
         <div class="empty-state" id="emptyState">
           <h3>AlterCode</h3>
-          <p>Ask questions, get code help, or start a mission.</p>
+          <p>Use Development mode for direct assistance or Planning mode to start a mission.</p>
         </div>
       </div>
 
       <div class="input-area">
         <div class="mode-selector">
-          <button class="mode-btn active" data-mode="chat">Chat</button>
-          <button class="mode-btn" data-mode="code">Code</button>
-          <button class="mode-btn" data-mode="architect">Architect</button>
-          <button class="mode-btn" data-mode="mission">Mission</button>
+          <button class="mode-btn active" data-mode="development">Development</button>
+          <button class="mode-btn" data-mode="planning">Planning</button>
         </div>
         <div class="input-row">
-          <textarea id="input" placeholder="Ask anything..." rows="1"></textarea>
+          <textarea id="input" placeholder="Describe what you want to build or ask a question..." rows="1"></textarea>
           <button class="send-btn" id="sendBtn">Send</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tasks Tab -->
+  <div class="tab-content" id="tasksTab">
+    <div class="tasks-container" id="tasksContainer">
+      <div class="empty-state">
+        <h3>No Active Tasks</h3>
+        <p>Start a mission in Planning mode to see tasks here.</p>
       </div>
     </div>
   </div>
@@ -958,7 +938,7 @@ export class MissionControlPanel {
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Workflow</div>
+        <div class="settings-section-title">General</div>
 
         <div class="setting-row">
           <div class="setting-info">
@@ -971,13 +951,73 @@ export class MissionControlPanel {
             <option value="full_automation">Full Auto</option>
           </select>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Claude CLI</div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">CLI Path</div>
+            <div class="setting-desc">Path to Claude Code CLI (leave empty for system PATH)</div>
+          </div>
+          <input type="text" id="claudeCliPath" class="wide" placeholder="claude">
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Max Output Tokens</div>
+            <div class="setting-desc">Maximum tokens for Claude responses (8192-32768 recommended)</div>
+          </div>
+          <input type="number" id="claudeMaxOutputTokens" min="1000" max="128000" step="1000">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">GLM API (Cost Optimization)</div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">API Key</div>
+            <div class="setting-desc">GLM API key for lower-level agents</div>
+          </div>
+          <input type="text" id="glmApiKey" placeholder="Enter API key">
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Model</div>
+            <div class="setting-desc">GLM model to use</div>
+          </div>
+          <input type="text" id="glmModel" placeholder="glm-4.7">
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Max Tokens</div>
+            <div class="setting-desc">Maximum tokens for GLM responses</div>
+          </div>
+          <input type="number" id="glmMaxTokens" min="1000" max="32000" step="1000">
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Temperature</div>
+            <div class="setting-desc">Response creativity (0.0-2.0)</div>
+          </div>
+          <input type="number" id="glmTemperature" min="0" max="2" step="0.1">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Hierarchy</div>
 
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Max Concurrent Workers</div>
-            <div class="setting-desc">Maximum parallel worker agents</div>
+            <div class="setting-desc">Maximum parallel worker agents (1-100)</div>
           </div>
-          <input type="number" id="maxWorkers" min="1" max="50" value="10">
+          <input type="number" id="maxConcurrentWorkers" min="1" max="100">
         </div>
 
         <div class="setting-row">
@@ -987,20 +1027,65 @@ export class MissionControlPanel {
           </div>
           <div class="toggle" id="enableSpecialists"></div>
         </div>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-section-title">API Configuration</div>
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-label">GLM API</div>
-            <div class="setting-desc" id="glmStatus">Not configured</div>
+            <div class="setting-label">Complexity Threshold</div>
+            <div class="setting-desc">Score threshold for using Claude vs GLM at Specialist level (0-100)</div>
           </div>
+          <input type="number" id="complexityThreshold" min="0" max="100">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Quota Management</div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Warning Threshold</div>
+            <div class="setting-desc">Show warning when usage reaches this percentage (0.0-1.0)</div>
+          </div>
+          <input type="number" id="quotaWarningThreshold" min="0" max="1" step="0.05">
         </div>
 
-        <button class="header-btn" id="openVSCodeSettings" style="margin-top: 12px">Open VS Code Settings</button>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Hard Stop Threshold</div>
+            <div class="setting-desc">Stop execution when usage reaches this percentage (0.0-1.0)</div>
+          </div>
+          <input type="number" id="quotaHardStopThreshold" min="0" max="1" step="0.05">
+        </div>
       </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">UI & Storage</div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Show Status Bar</div>
+            <div class="setting-desc">Display AlterCode status in VS Code status bar</div>
+          </div>
+          <div class="toggle" id="showStatusBar"></div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Auto Open Mission Control</div>
+            <div class="setting-desc">Automatically open this panel for complex missions</div>
+          </div>
+          <div class="toggle" id="autoOpenMissionControl"></div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">History Retention Days</div>
+            <div class="setting-desc">Days to keep mission history (1-365)</div>
+          </div>
+          <input type="number" id="maxHistoryDays" min="1" max="365">
+        </div>
+      </div>
+
+      <button class="header-btn" id="openVSCodeSettings" style="margin-top: 12px">Open VS Code Settings</button>
     </div>
   </div>
 
@@ -1012,7 +1097,7 @@ export class MissionControlPanel {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
 
-    let currentMode = 'chat';
+    let currentMode = 'development';
     let isStreaming = false;
     let hiveState = null;
     let config = {};
@@ -1024,6 +1109,8 @@ export class MissionControlPanel {
     const sendBtn = document.getElementById('sendBtn');
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
+    const taskBadge = document.getElementById('taskBadge');
+    const tasksContainer = document.getElementById('tasksContainer');
 
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
@@ -1036,19 +1123,15 @@ export class MissionControlPanel {
       });
     });
 
-    // Mode selection
+    // Mode selection (Development / Planning)
     document.querySelectorAll('.mode-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentMode = btn.dataset.mode;
-        const placeholders = {
-          chat: 'Ask anything...',
-          code: 'Describe the code you need...',
-          architect: 'Describe the system to design...',
-          mission: 'Describe your project goals...'
-        };
-        inputEl.placeholder = placeholders[currentMode] || 'Ask anything...';
+        inputEl.placeholder = currentMode === 'planning'
+          ? 'Describe your project goals and requirements...'
+          : 'Describe what you want to build or ask a question...';
       });
     });
 
@@ -1056,8 +1139,8 @@ export class MissionControlPanel {
     window.addEventListener('message', event => {
       const msg = event.data;
       switch (msg.type) {
-        case 'stateUpdate': hiveState = msg.payload; updateMissionCards(); updateStatusBar(); break;
-        case 'configUpdate': config = msg.payload; updateSettingsUI(); break;
+        case 'stateUpdate': hiveState = msg.payload; updateTasksView(); updateMissionCards(); updateStatusBar(); break;
+        case 'fullConfigUpdate': config = msg.payload; updateSettingsUI(); break;
         case 'cliStatus': updateCliStatus(msg.payload); break;
         case 'messagesUpdate': renderMessages(msg.payload); break;
         case 'addMessage': addMessage(msg.payload); break;
@@ -1091,15 +1174,11 @@ export class MissionControlPanel {
       const el = document.getElementById('msg-' + msg.id);
       if (el) {
         if (msg.missionId) {
-          // Update mission card
           updateMissionCards();
         } else {
           const content = el.querySelector('.message-content');
-          if (content) {
-            content.innerHTML = formatMarkdown(msg.content);
-          }
+          if (content) content.innerHTML = formatMarkdown(msg.content);
         }
-
         if (msg.streaming) {
           el.classList.add('streaming');
         } else {
@@ -1118,7 +1197,6 @@ export class MissionControlPanel {
       div.className = 'message ' + msg.role + (msg.streaming ? ' streaming' : '');
 
       if (msg.missionId) {
-        // Mission message - render with inline progress card
         div.innerHTML = renderMissionCard(msg.missionId);
         expandedMissions.add(msg.missionId);
       } else {
@@ -1136,7 +1214,7 @@ export class MissionControlPanel {
       }
 
       const mission = hiveState.activeMission;
-      if (mission.id !== missionId && !hiveState.completedMissions?.find(m => m.id === missionId)) {
+      if (mission.id !== missionId) {
         return '<div class="message-content">Mission not found</div>';
       }
 
@@ -1147,64 +1225,41 @@ export class MissionControlPanel {
 
       let html = '<div class="mission-card' + (isExpanded ? ' expanded' : '') + '" data-mission="' + missionId + '">';
 
-      // Header (always visible)
       html += '<div class="mission-card-header" onclick="toggleMissionCard(\\'' + missionId + '\\')">';
-      html += '<div class="mission-card-title">';
-      html += '<span>' + (isExpanded ? '▼' : '▶') + '</span>';
-      html += '<span>' + mission.title + '</span>';
-      html += '</div>';
-      html += '<div class="mission-card-progress">';
-      html += '<div class="progress-bar"><div class="progress-fill" style="width:' + progress + '%"></div></div>';
-      html += '<span class="progress-text">' + progress + '%</span>';
-      html += '<span class="mission-card-status">' + mission.status + '</span>';
-      html += '</div>';
-      html += '</div>';
+      html += '<div class="mission-card-title"><span>' + (isExpanded ? '▼' : '▶') + '</span><span>' + mission.title + '</span></div>';
+      html += '<div class="mission-card-progress"><div class="progress-bar"><div class="progress-fill" style="width:' + progress + '%"></div></div>';
+      html += '<span class="progress-text">' + progress + '%</span><span class="mission-card-status">' + mission.status + '</span></div></div>';
 
-      // Body (collapsible)
       html += '<div class="mission-card-body">';
 
-      // Hierarchy
       if (agents && agents.length > 0) {
-        html += '<div class="hierarchy-section">';
-        html += '<div class="section-label">Hierarchy</div>';
+        html += '<div class="hierarchy-section"><div class="section-label">Hierarchy</div>';
         agents.sort((a, b) => a.level - b.level).forEach(agent => {
           const task = runningTasks.find(t => t.assignedAgentId === agent.id);
           html += '<div class="hierarchy-node level-' + agent.level + '">';
           html += '<span class="node-connector">' + (agent.level > 0 ? '└─' : '') + '</span>';
           html += '<span class="node-role">' + formatRole(agent.role) + (task ? ': ' + task.title.substring(0, 30) : '') + '</span>';
-          html += '<span class="node-status ' + agent.status + '">' + agent.status + '</span>';
-          html += '</div>';
+          html += '<span class="node-status ' + agent.status + '">' + agent.status + '</span></div>';
         });
         html += '</div>';
       }
 
-      // Tasks
       const allTasks = [...runningTasks, ...taskQueue.slice(0, 5)];
       if (allTasks.length > 0) {
-        html += '<div class="tasks-section">';
-        html += '<div class="section-label">Tasks</div>';
+        html += '<div class="tasks-section"><div class="section-label">Tasks</div>';
         allTasks.forEach(task => {
           const status = runningTasks.includes(task) ? 'running' : 'pending';
-          html += '<div class="task-row">';
-          html += '<div class="task-dot ' + status + '"></div>';
-          html += '<span class="task-title">' + task.title + '</span>';
-          html += '</div>';
+          html += '<div class="task-row"><div class="task-dot ' + status + '"></div><span class="task-title">' + task.title + '</span></div>';
         });
-        if (taskQueue.length > 5) {
-          html += '<div class="task-row" style="color:var(--vscode-descriptionForeground)">+ ' + (taskQueue.length - 5) + ' more pending</div>';
-        }
+        if (taskQueue.length > 5) html += '<div class="task-row" style="color:var(--vscode-descriptionForeground)">+ ' + (taskQueue.length - 5) + ' more pending</div>';
         html += '</div>';
       }
 
-      // Controls
       html += '<div class="mission-controls">';
       html += '<button class="mission-btn" onclick="pauseMission(\\'' + missionId + '\\')"' + (mission.status !== 'executing' ? ' disabled' : '') + '>Pause</button>';
       html += '<button class="mission-btn" onclick="resumeMission(\\'' + missionId + '\\')"' + (mission.status !== 'paused' ? ' disabled' : '') + '>Resume</button>';
       html += '<button class="mission-btn" onclick="cancelMission(\\'' + missionId + '\\')">Cancel</button>';
-      html += '</div>';
-
-      html += '</div>'; // body
-      html += '</div>'; // card
+      html += '</div></div></div>';
 
       return html;
     }
@@ -1214,33 +1269,104 @@ export class MissionControlPanel {
         const missionId = card.dataset.mission;
         if (missionId) {
           const parent = card.parentElement;
-          if (parent) {
-            parent.innerHTML = renderMissionCard(missionId);
-          }
+          if (parent) parent.innerHTML = renderMissionCard(missionId);
         }
       });
     }
 
-    window.toggleMissionCard = function(missionId) {
-      if (expandedMissions.has(missionId)) {
-        expandedMissions.delete(missionId);
+    function updateTasksView() {
+      if (!hiveState) return;
+      const { activeMission, taskQueue, runningTasks, completedTasks, agents } = hiveState;
+      const totalActive = taskQueue.length + runningTasks.length;
+
+      if (totalActive > 0) {
+        taskBadge.textContent = totalActive;
+        taskBadge.style.display = 'inline';
       } else {
-        expandedMissions.add(missionId);
+        taskBadge.style.display = 'none';
       }
+
+      if (!activeMission) {
+        tasksContainer.innerHTML = '<div class="empty-state"><h3>No Active Tasks</h3><p>Start a mission in Planning mode to see tasks here.</p></div>';
+        return;
+      }
+
+      const total = taskQueue.length + runningTasks.length + completedTasks.length;
+      const progress = total > 0 ? Math.round((completedTasks.length / total) * 100) : 0;
+      const busyAgents = agents.filter(a => a.status === 'busy').length;
+
+      let html = '<div class="tasks-header"><div class="tasks-title">' + activeMission.title + '</div></div>';
+
+      html += '<div class="mission-summary"><div class="mission-summary-title">Mission Overview</div>';
+      html += '<div class="mission-stats">';
+      html += '<div class="stat-item"><span>Status:</span><span class="stat-value">' + activeMission.status + '</span></div>';
+      html += '<div class="stat-item"><span>Progress:</span><span class="stat-value">' + progress + '%</span></div>';
+      html += '<div class="stat-item"><span>Tasks:</span><span class="stat-value">' + completedTasks.length + '/' + total + '</span></div>';
+      html += '<div class="stat-item"><span>Agents:</span><span class="stat-value">' + busyAgents + '/' + agents.length + ' busy</span></div>';
+      html += '</div>';
+      html += '<div class="mission-controls" style="border-top:none;margin-top:12px;padding-top:0">';
+      html += '<button class="mission-btn" onclick="pauseMission(\\'' + activeMission.id + '\\')"' + (activeMission.status !== 'executing' ? ' disabled' : '') + '>Pause</button>';
+      html += '<button class="mission-btn" onclick="resumeMission(\\'' + activeMission.id + '\\')"' + (activeMission.status !== 'paused' ? ' disabled' : '') + '>Resume</button>';
+      html += '<button class="mission-btn" onclick="cancelMission(\\'' + activeMission.id + '\\')">Cancel</button>';
+      html += '</div></div>';
+
+      // Hierarchy
+      if (agents && agents.length > 0) {
+        html += '<div class="section-label" style="margin-top:16px">Agent Hierarchy</div>';
+        html += '<div class="task-list">';
+        agents.sort((a, b) => a.level - b.level).forEach(agent => {
+          const task = runningTasks.find(t => t.assignedAgentId === agent.id);
+          html += '<div class="task-item">';
+          html += '<div class="task-dot ' + agent.status + '"></div>';
+          html += '<div class="task-info"><div class="task-name">' + formatRole(agent.role) + '</div>';
+          html += '<div class="task-meta">Level ' + agent.level + (task ? ' - ' + task.title : '') + '</div></div>';
+          html += '<span class="task-status-badge ' + agent.status + '">' + agent.status + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      // Running Tasks
+      if (runningTasks.length > 0) {
+        html += '<div class="section-label" style="margin-top:16px">Running (' + runningTasks.length + ')</div>';
+        html += '<div class="task-list">';
+        runningTasks.forEach(t => { html += taskRow(t, 'running'); });
+        html += '</div>';
+      }
+
+      // Pending Tasks
+      if (taskQueue.length > 0) {
+        html += '<div class="section-label" style="margin-top:16px">Pending (' + taskQueue.length + ')</div>';
+        html += '<div class="task-list">';
+        taskQueue.forEach(t => { html += taskRow(t, 'pending'); });
+        html += '</div>';
+      }
+
+      // Completed Tasks
+      if (completedTasks.length > 0) {
+        html += '<div class="section-label" style="margin-top:16px">Completed (' + completedTasks.length + ')</div>';
+        html += '<div class="task-list">';
+        completedTasks.slice(-10).reverse().forEach(t => { html += taskRow(t, 'completed'); });
+        if (completedTasks.length > 10) html += '<div style="padding:8px 12px;font-size:11px;color:var(--vscode-descriptionForeground)">+ ' + (completedTasks.length - 10) + ' more</div>';
+        html += '</div>';
+      }
+
+      tasksContainer.innerHTML = html;
+    }
+
+    function taskRow(task, status) {
+      return '<div class="task-item"><div class="task-dot ' + status + '"></div><div class="task-info"><div class="task-name">' + task.title + '</div><div class="task-meta">Level ' + task.level + '</div></div><span class="task-status-badge ' + status + '">' + status + '</span></div>';
+    }
+
+    window.toggleMissionCard = function(missionId) {
+      if (expandedMissions.has(missionId)) expandedMissions.delete(missionId);
+      else expandedMissions.add(missionId);
       updateMissionCards();
     };
 
-    window.pauseMission = function(missionId) {
-      vscode.postMessage({ type: 'pauseMission', payload: { missionId } });
-    };
-
-    window.resumeMission = function(missionId) {
-      vscode.postMessage({ type: 'resumeMission', payload: { missionId } });
-    };
-
-    window.cancelMission = function(missionId) {
-      vscode.postMessage({ type: 'cancelMission', payload: { missionId } });
-    };
+    window.pauseMission = function(missionId) { vscode.postMessage({ type: 'pauseMission', payload: { missionId } }); };
+    window.resumeMission = function(missionId) { vscode.postMessage({ type: 'resumeMission', payload: { missionId } }); };
+    window.cancelMission = function(missionId) { vscode.postMessage({ type: 'cancelMission', payload: { missionId } }); };
 
     function formatRole(role) {
       return role.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
@@ -1290,15 +1416,38 @@ export class MissionControlPanel {
     }
 
     function updateSettingsUI() {
+      // General
       document.getElementById('approvalMode').value = config.approvalMode || 'fully_manual';
-      document.getElementById('maxWorkers').value = config.maxConcurrentWorkers || 10;
-      const toggle = document.getElementById('enableSpecialists');
-      if (config.enableSpecialists) {
-        toggle.classList.add('active');
-      } else {
-        toggle.classList.remove('active');
-      }
-      document.getElementById('glmStatus').textContent = config.glmConfigured ? 'Configured' : 'Not configured';
+
+      // Claude
+      document.getElementById('claudeCliPath').value = config.claudeCliPath || '';
+      document.getElementById('claudeMaxOutputTokens').value = config.claudeMaxOutputTokens || 16384;
+
+      // GLM
+      document.getElementById('glmApiKey').value = config.glmApiKey || '';
+      document.getElementById('glmModel').value = config.glmModel || 'glm-4.7';
+      document.getElementById('glmMaxTokens').value = config.glmMaxTokens || 4096;
+      document.getElementById('glmTemperature').value = config.glmTemperature || 0.7;
+
+      // Hierarchy
+      document.getElementById('maxConcurrentWorkers').value = config.maxConcurrentWorkers || 10;
+      setToggle('enableSpecialists', config.enableSpecialists);
+      document.getElementById('complexityThreshold').value = config.complexityThreshold || 60;
+
+      // Quota
+      document.getElementById('quotaWarningThreshold').value = config.quotaWarningThreshold || 0.8;
+      document.getElementById('quotaHardStopThreshold').value = config.quotaHardStopThreshold || 0.95;
+
+      // UI
+      setToggle('showStatusBar', config.showStatusBar);
+      setToggle('autoOpenMissionControl', config.autoOpenMissionControl);
+      document.getElementById('maxHistoryDays').value = config.maxHistoryDays || 30;
+    }
+
+    function setToggle(id, value) {
+      const el = document.getElementById(id);
+      if (value) el.classList.add('active');
+      else el.classList.remove('active');
     }
 
     function send() {
@@ -1319,24 +1468,53 @@ export class MissionControlPanel {
 
     document.getElementById('newChatBtn').addEventListener('click', () => { vscode.postMessage({ type: 'clearChat' }); });
     document.getElementById('cliCheckBtn').addEventListener('click', () => { vscode.postMessage({ type: 'checkCli' }); });
+    document.getElementById('openVSCodeSettings').addEventListener('click', () => { vscode.postMessage({ type: 'openSettings' }); });
 
-    document.getElementById('approvalMode').addEventListener('change', e => {
-      vscode.postMessage({ type: 'updateConfig', payload: { approvalMode: e.target.value } });
-    });
+    // Settings event handlers
+    function bindSetting(id, key, parser = v => v) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', () => {
+        const val = parser(el.type === 'checkbox' ? el.checked : el.value);
+        vscode.postMessage({ type: 'updateConfig', payload: { [key]: val } });
+      });
+    }
 
-    document.getElementById('maxWorkers').addEventListener('change', e => {
-      vscode.postMessage({ type: 'updateConfig', payload: { maxConcurrentWorkers: parseInt(e.target.value) } });
-    });
+    function bindToggle(id, key) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('click', () => {
+        const isActive = el.classList.toggle('active');
+        vscode.postMessage({ type: 'updateConfig', payload: { [key]: isActive } });
+      });
+    }
 
-    document.getElementById('enableSpecialists').addEventListener('click', e => {
-      const toggle = e.currentTarget;
-      const isActive = toggle.classList.toggle('active');
-      vscode.postMessage({ type: 'updateConfig', payload: { enableSpecialists: isActive } });
-    });
+    // General
+    bindSetting('approvalMode', 'approvalMode');
 
-    document.getElementById('openVSCodeSettings').addEventListener('click', () => {
-      vscode.postMessage({ type: 'openSettings' });
-    });
+    // Claude
+    bindSetting('claudeCliPath', 'claudeCliPath');
+    bindSetting('claudeMaxOutputTokens', 'claudeMaxOutputTokens', v => parseInt(v));
+
+    // GLM
+    bindSetting('glmApiKey', 'glmApiKey');
+    bindSetting('glmModel', 'glmModel');
+    bindSetting('glmMaxTokens', 'glmMaxTokens', v => parseInt(v));
+    bindSetting('glmTemperature', 'glmTemperature', v => parseFloat(v));
+
+    // Hierarchy
+    bindSetting('maxConcurrentWorkers', 'maxConcurrentWorkers', v => parseInt(v));
+    bindToggle('enableSpecialists', 'enableSpecialists');
+    bindSetting('complexityThreshold', 'complexityThreshold', v => parseInt(v));
+
+    // Quota
+    bindSetting('quotaWarningThreshold', 'quotaWarningThreshold', v => parseFloat(v));
+    bindSetting('quotaHardStopThreshold', 'quotaHardStopThreshold', v => parseFloat(v));
+
+    // UI
+    bindToggle('showStatusBar', 'showStatusBar');
+    bindToggle('autoOpenMissionControl', 'autoOpenMissionControl');
+    bindSetting('maxHistoryDays', 'maxHistoryDays', v => parseInt(v));
   </script>
 </body>
 </html>`;

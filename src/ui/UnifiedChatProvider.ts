@@ -1,8 +1,8 @@
 /**
- * Unified Chat Provider
+ * Unified Chat Provider - Ultra-Compact Sidebar Launcher
  *
- * A minimal sidebar launcher that provides quick access to Mission Control
- * and shows status at a glance.
+ * Minimal sidebar that provides quick access to Mission Control.
+ * Designed to take minimal vertical space while showing essential status.
  */
 
 import * as vscode from 'vscode';
@@ -87,10 +87,6 @@ export class UnifiedChatProvider implements vscode.WebviewViewProvider {
       case 'cancelMission':
         await this.core.cancelMission(message.payload.missionId);
         break;
-
-      case 'openSettings':
-        vscode.commands.executeCommand('altercode.configure');
-        break;
     }
   }
 
@@ -117,296 +113,244 @@ export class UnifiedChatProvider implements vscode.WebviewViewProvider {
 
     body {
       font-family: var(--vscode-font-family);
-      font-size: 13px;
+      font-size: 12px;
       color: var(--vscode-foreground);
       background: var(--vscode-sideBar-background);
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      padding: 12px;
-      gap: 12px;
+      padding: 8px;
     }
 
-    .section {
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-panel-border);
-      padding: 12px;
-    }
-
-    .section-title {
-      font-size: 11px;
+    /* Main Launch Button */
+    .launch-btn {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
       font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--vscode-descriptionForeground);
-      margin-bottom: 8px;
-    }
-
-    /* CLI Status */
-    .cli-row {
+      cursor: pointer;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
     }
 
-    .cli-dot {
-      width: 8px;
-      height: 8px;
+    .launch-btn:hover { background: var(--vscode-button-hoverBackground); }
+
+    /* Compact Status Row */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 6px 8px;
+      background: var(--vscode-editor-background);
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       flex-shrink: 0;
     }
 
-    .cli-dot.ok { background: var(--vscode-testing-iconPassed); }
-    .cli-dot.warning { background: var(--vscode-testing-iconQueued); }
-    .cli-dot.error { background: var(--vscode-testing-iconFailed); }
+    .status-dot.ok { background: var(--vscode-testing-iconPassed); }
+    .status-dot.warning { background: var(--vscode-testing-iconQueued); }
+    .status-dot.error { background: var(--vscode-testing-iconFailed); }
+    .status-dot.busy { background: var(--vscode-testing-iconQueued); animation: pulse 1.5s infinite; }
 
-    .cli-info { flex: 1; }
-    .cli-title { font-size: 12px; font-weight: 500; }
-    .cli-detail { font-size: 11px; color: var(--vscode-descriptionForeground); }
-
-    .btn-small {
-      padding: 4px 8px;
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-      border: none;
-      font-size: 11px;
-      cursor: pointer;
-    }
-
-    .btn-small:hover { background: var(--vscode-button-secondaryHoverBackground); }
-
-    /* Mission Status */
-    .mission-empty {
-      text-align: center;
+    .status-text {
+      flex: 1;
       color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-      padding: 8px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .mission-active {
+    .status-btn {
+      padding: 2px 6px;
+      background: transparent;
+      color: var(--vscode-textLink-foreground);
+      border: none;
+      font-size: 10px;
+      cursor: pointer;
+      opacity: 0.8;
+    }
+
+    .status-btn:hover { opacity: 1; text-decoration: underline; }
+
+    /* Mission Progress (only shown when active) */
+    .mission-bar {
+      margin-top: 8px;
+      display: none;
+    }
+
+    .mission-bar.active { display: block; }
+
+    .mission-header {
       display: flex;
-      flex-direction: column;
-      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
     }
 
     .mission-title {
+      font-size: 11px;
       font-weight: 500;
-      font-size: 13px;
-    }
-
-    .mission-progress-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .progress-bar {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       flex: 1;
-      height: 4px;
+    }
+
+    .mission-percent {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      margin-left: 8px;
+    }
+
+    .progress-track {
+      height: 3px;
       background: var(--vscode-progressBar-background);
+      border-radius: 2px;
+      overflow: hidden;
     }
 
     .progress-fill {
       height: 100%;
       background: var(--vscode-button-background);
-      transition: width 0.2s;
-    }
-
-    .progress-text {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-      min-width: 32px;
-      text-align: right;
-    }
-
-    .mission-stats {
-      display: flex;
-      gap: 12px;
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
+      transition: width 0.3s ease;
     }
 
     .mission-controls {
       display: flex;
       gap: 4px;
+      margin-top: 6px;
     }
 
-    /* Open Button */
-    .open-btn {
-      width: 100%;
-      padding: 10px 16px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: none;
-      font-size: 13px;
-      cursor: pointer;
-      font-weight: 500;
-    }
-
-    .open-btn:hover { background: var(--vscode-button-hoverBackground); }
-
-    /* Quick Actions */
-    .quick-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    .action-btn {
+    .ctrl-btn {
       flex: 1;
-      padding: 8px;
+      padding: 4px;
       background: var(--vscode-button-secondaryBackground);
       color: var(--vscode-button-secondaryForeground);
       border: none;
-      font-size: 12px;
+      border-radius: 2px;
+      font-size: 10px;
       cursor: pointer;
     }
 
-    .action-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
-
-    /* Footer */
-    .footer {
-      margin-top: auto;
-      text-align: center;
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-    }
-
-    .footer a {
-      color: var(--vscode-textLink-foreground);
-      text-decoration: none;
-      cursor: pointer;
-    }
-
-    .footer a:hover { text-decoration: underline; }
+    .ctrl-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+    .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .pulse { animation: pulse 1.5s infinite; }
   </style>
 </head>
 <body>
-  <!-- Main Open Button -->
-  <button class="open-btn" id="openBtn">Open Mission Control</button>
+  <!-- Main Launch Button -->
+  <button class="launch-btn" id="launchBtn">
+    <span>Open Mission Control</span>
+  </button>
 
-  <!-- CLI Status -->
-  <div class="section">
-    <div class="cli-row">
-      <div class="cli-dot" id="cliDot"></div>
-      <div class="cli-info">
-        <div class="cli-title">Claude CLI</div>
-        <div class="cli-detail" id="cliDetail">Checking...</div>
-      </div>
-      <button class="btn-small" id="cliCheckBtn">Check</button>
+  <!-- CLI Status Row -->
+  <div class="status-row">
+    <div class="status-dot" id="cliDot"></div>
+    <span class="status-text" id="cliText">Checking CLI...</span>
+    <button class="status-btn" id="cliBtn">Check</button>
+  </div>
+
+  <!-- Mission Progress (hidden when no mission) -->
+  <div class="mission-bar" id="missionBar">
+    <div class="mission-header">
+      <span class="mission-title" id="missionTitle">Mission</span>
+      <span class="mission-percent" id="missionPercent">0%</span>
     </div>
-  </div>
-
-  <!-- Mission Status -->
-  <div class="section">
-    <div class="section-title">Current Mission</div>
-    <div id="missionStatus">
-      <div class="mission-empty">No active mission</div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill" style="width: 0%"></div>
     </div>
-  </div>
-
-  <!-- Quick Actions -->
-  <div class="quick-actions">
-    <button class="action-btn" id="settingsBtn">Settings</button>
-  </div>
-
-  <!-- Footer -->
-  <div class="footer">
-    <a id="helpLink">Help</a>
+    <div class="mission-controls">
+      <button class="ctrl-btn" id="pauseBtn">Pause</button>
+      <button class="ctrl-btn" id="resumeBtn" disabled>Resume</button>
+      <button class="ctrl-btn" id="cancelBtn">Cancel</button>
+    </div>
   </div>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    let hiveState = null;
 
     const cliDot = document.getElementById('cliDot');
-    const cliDetail = document.getElementById('cliDetail');
-    const missionStatus = document.getElementById('missionStatus');
+    const cliText = document.getElementById('cliText');
+    const missionBar = document.getElementById('missionBar');
+    const missionTitle = document.getElementById('missionTitle');
+    const missionPercent = document.getElementById('missionPercent');
+    const progressFill = document.getElementById('progressFill');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resumeBtn = document.getElementById('resumeBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+
+    let currentMissionId = null;
 
     window.addEventListener('message', event => {
       const msg = event.data;
-      switch (msg.type) {
-        case 'stateUpdate':
-          hiveState = msg.payload;
-          updateMissionStatus();
-          break;
-        case 'cliStatus':
-          updateCliStatus(msg.payload);
-          break;
-      }
+      if (msg.type === 'stateUpdate') updateMission(msg.payload);
+      else if (msg.type === 'cliStatus') updateCli(msg.payload);
     });
 
-    function updateCliStatus(status) {
+    function updateCli(status) {
       if (status.installed && status.authenticated) {
-        cliDot.className = 'cli-dot ok';
-        cliDetail.textContent = 'Ready (v' + status.version + ')';
+        cliDot.className = 'status-dot ok';
+        cliText.textContent = 'Claude CLI v' + status.version;
       } else if (status.installed) {
-        cliDot.className = 'cli-dot warning';
-        cliDetail.textContent = 'Needs authentication';
+        cliDot.className = 'status-dot warning';
+        cliText.textContent = 'CLI needs auth';
       } else {
-        cliDot.className = 'cli-dot error';
-        cliDetail.textContent = status.error || 'Not installed';
+        cliDot.className = 'status-dot error';
+        cliText.textContent = status.error || 'CLI not found';
       }
     }
 
-    function updateMissionStatus() {
-      if (!hiveState || !hiveState.activeMission) {
-        missionStatus.innerHTML = '<div class="mission-empty">No active mission</div>';
+    function updateMission(state) {
+      if (!state || !state.activeMission) {
+        missionBar.classList.remove('active');
+        currentMissionId = null;
         return;
       }
 
-      const { activeMission, taskQueue, runningTasks, completedTasks, agents } = hiveState;
+      const { activeMission, taskQueue, runningTasks, completedTasks } = state;
+      currentMissionId = activeMission.id;
+
       const total = taskQueue.length + runningTasks.length + completedTasks.length;
-      const progress = total > 0 ? Math.round((completedTasks.length / total) * 100) : 0;
-      const busyAgents = agents.filter(a => a.status === 'busy').length;
+      const pct = total > 0 ? Math.round((completedTasks.length / total) * 100) : 0;
 
-      let html = '<div class="mission-active">';
-      html += '<div class="mission-title">' + activeMission.title + '</div>';
-      html += '<div class="mission-progress-row">';
-      html += '<div class="progress-bar"><div class="progress-fill" style="width:' + progress + '%"></div></div>';
-      html += '<span class="progress-text">' + progress + '%</span>';
-      html += '</div>';
-      html += '<div class="mission-stats">';
-      html += '<span>' + completedTasks.length + '/' + total + ' tasks</span>';
-      html += '<span>' + busyAgents + ' agents</span>';
-      html += '<span class="' + (activeMission.status === 'executing' ? 'pulse' : '') + '">' + activeMission.status + '</span>';
-      html += '</div>';
-      html += '<div class="mission-controls">';
-      html += '<button class="btn-small" id="pauseBtn"' + (activeMission.status !== 'executing' ? ' disabled' : '') + '>Pause</button>';
-      html += '<button class="btn-small" id="resumeBtn"' + (activeMission.status !== 'paused' ? ' disabled' : '') + '>Resume</button>';
-      html += '<button class="btn-small" id="cancelBtn">Cancel</button>';
-      html += '</div>';
-      html += '</div>';
+      missionBar.classList.add('active');
+      missionTitle.textContent = activeMission.title;
+      missionPercent.textContent = pct + '%';
+      progressFill.style.width = pct + '%';
 
-      missionStatus.innerHTML = html;
-
-      document.getElementById('pauseBtn')?.addEventListener('click', () => {
-        vscode.postMessage({ type: 'pauseMission', payload: { missionId: activeMission.id } });
-      });
-      document.getElementById('resumeBtn')?.addEventListener('click', () => {
-        vscode.postMessage({ type: 'resumeMission', payload: { missionId: activeMission.id } });
-      });
-      document.getElementById('cancelBtn')?.addEventListener('click', () => {
-        vscode.postMessage({ type: 'cancelMission', payload: { missionId: activeMission.id } });
-      });
+      pauseBtn.disabled = activeMission.status !== 'executing';
+      resumeBtn.disabled = activeMission.status !== 'paused';
     }
 
-    document.getElementById('openBtn').addEventListener('click', () => {
+    document.getElementById('launchBtn').addEventListener('click', () => {
       vscode.postMessage({ type: 'openMissionControl' });
     });
 
-    document.getElementById('cliCheckBtn').addEventListener('click', () => {
+    document.getElementById('cliBtn').addEventListener('click', () => {
       vscode.postMessage({ type: 'checkCli' });
     });
 
-    document.getElementById('settingsBtn').addEventListener('click', () => {
-      vscode.postMessage({ type: 'openSettings' });
+    pauseBtn.addEventListener('click', () => {
+      if (currentMissionId) vscode.postMessage({ type: 'pauseMission', payload: { missionId: currentMissionId } });
     });
 
-    document.getElementById('helpLink').addEventListener('click', () => {
-      vscode.postMessage({ type: 'openMissionControl' });
+    resumeBtn.addEventListener('click', () => {
+      if (currentMissionId) vscode.postMessage({ type: 'resumeMission', payload: { missionId: currentMissionId } });
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      if (currentMissionId) vscode.postMessage({ type: 'cancelMission', payload: { missionId: currentMissionId } });
     });
   </script>
 </body>
