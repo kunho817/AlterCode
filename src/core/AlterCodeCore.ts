@@ -179,16 +179,72 @@ export class AlterCodeCore extends EventEmitter {
     // Emit event
     this.emitEvent(EventType.MISSION_CREATED, { mission });
 
-    // Only start execution if not planOnly mode
-    if (!options.planOnly) {
-      await this.startMission(mission.id);
+    // In planOnly mode, run planning phase (decompose but don't execute workers)
+    if (options.planOnly) {
+      this.logger.info('Planning-only mode: Running planning phase...');
+      await this.runPlanningPhase(mission.id);
     } else {
-      this.logger.info('Planning-only mode: Mission created but not started');
-      mission.status = MissionStatus.PAUSED; // Mark as paused so user can review
-      await this.stateManager.updateMission(mission);
+      // Full execution mode
+      await this.startMission(mission.id);
     }
 
     return mission;
+  }
+
+  /**
+   * Run planning phase only (decompose tasks down to WORKER level, then stop).
+   */
+  async runPlanningPhase(missionId: string): Promise<void> {
+    this.ensureInitialized();
+
+    const mission = await this.stateManager.getMission(missionId);
+    if (!mission) {
+      throw new Error(`Mission not found: ${missionId}`);
+    }
+
+    this.logger.info(`Running planning phase for mission: ${missionId}`);
+
+    mission.status = MissionStatus.PLANNING;
+    await this.stateManager.updateMission(mission);
+
+    this.activeMission = mission;
+    this.emitEvent(EventType.MISSION_STARTED, { mission });
+
+    // Run planning (decompose all levels except WORKER)
+    this.executionCoordinator
+      .planOnly(mission)
+      .then(async () => {
+        this.logger.info(`Planning phase completed: ${missionId}`);
+        mission.status = MissionStatus.PLANNED;
+        await this.stateManager.updateMission(mission);
+        this.emitEvent(EventType.MISSION_PAUSED, { mission }); // Use paused event to trigger UI update
+      })
+      .catch((error) => {
+        this.logger.error(`Planning phase failed: ${missionId}`, error);
+        this.handleMissionFailure(mission, error);
+      });
+  }
+
+  /**
+   * Execute a planned mission (run WORKER tasks).
+   * Call this after planning phase completes to start actual execution.
+   */
+  async executePlan(missionId: string): Promise<void> {
+    this.ensureInitialized();
+
+    const mission = await this.stateManager.getMission(missionId);
+    if (!mission) {
+      throw new Error(`Mission not found: ${missionId}`);
+    }
+
+    if (mission.status !== MissionStatus.PLANNED && mission.status !== MissionStatus.PAUSED) {
+      throw new Error(`Mission is not in planned state: ${mission.status}`);
+    }
+
+    this.logger.info(`Executing planned mission: ${missionId}`);
+
+    // Start full execution (will run WORKER tasks)
+    await this.startMission(missionId);
   }
 
   /**

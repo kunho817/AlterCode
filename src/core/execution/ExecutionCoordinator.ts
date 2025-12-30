@@ -54,6 +54,7 @@ export class ExecutionCoordinator extends EventEmitter {
 
   private isRunning: boolean = false;
   private isPaused: boolean = false;
+  private isPlanningMode: boolean = false;  // Planning mode: decompose only, don't execute workers
   private currentMission: Mission | null = null;
   private executionLoop: Promise<void> | null = null;
 
@@ -107,9 +108,24 @@ export class ExecutionCoordinator extends EventEmitter {
   }
 
   /**
-   * Execute a mission.
+   * Execute a mission (full execution including workers).
    */
   async execute(mission: Mission): Promise<void> {
+    return this.runMission(mission, false);
+  }
+
+  /**
+   * Plan a mission (decompose all levels but don't execute workers).
+   * Stops when all pending tasks are at WORKER level.
+   */
+  async planOnly(mission: Mission): Promise<void> {
+    return this.runMission(mission, true);
+  }
+
+  /**
+   * Internal method to run a mission in either mode.
+   */
+  private async runMission(mission: Mission, planningMode: boolean): Promise<void> {
     if (this.isRunning) {
       throw new Error('Execution already in progress');
     }
@@ -117,8 +133,9 @@ export class ExecutionCoordinator extends EventEmitter {
     this.currentMission = mission;
     this.isRunning = true;
     this.isPaused = false;
+    this.isPlanningMode = planningMode;
 
-    this.logger.info(`Starting execution of mission: ${mission.id}`);
+    this.logger.info(`Starting ${planningMode ? 'planning' : 'execution'} of mission: ${mission.id}`);
 
     try {
       this.executionLoop = this.runExecutionLoop();
@@ -126,17 +143,22 @@ export class ExecutionCoordinator extends EventEmitter {
 
       // Check mission status
       const progress = this.taskManager.getMissionProgress(mission.id);
-      if (progress.completed === progress.total) {
+
+      if (planningMode) {
+        // In planning mode, mark as PLANNED when all non-worker tasks are done
+        mission.status = MissionStatus.PLANNED;
+        this.logger.info(`Mission planning completed: ${mission.id}`);
+      } else if (progress.completed === progress.total) {
         mission.status = MissionStatus.COMPLETED;
         mission.completedAt = new Date();
+        this.logger.info(`Mission execution completed: ${mission.id}`);
       }
-
-      this.logger.info(`Mission execution completed: ${mission.id}`);
     } catch (error) {
-      this.logger.error(`Mission execution failed: ${mission.id}`, error);
+      this.logger.error(`Mission ${planningMode ? 'planning' : 'execution'} failed: ${mission.id}`, error);
       throw error;
     } finally {
       this.isRunning = false;
+      this.isPlanningMode = false;
       this.currentMission = null;
       this.executionLoop = null;
     }
@@ -210,6 +232,16 @@ export class ExecutionCoordinator extends EventEmitter {
 
       if (readyTasks.length === 0) {
         if (runningTasks.length === 0) {
+          // In planning mode, check if all remaining tasks are WORKER level
+          if (this.isPlanningMode && pendingTasks.length > 0) {
+            const nonWorkerPending = pendingTasks.filter(t => t.level !== HierarchyLevel.WORKER);
+            if (nonWorkerPending.length === 0) {
+              const workerTasks = pendingTasks.filter(t => t.level === HierarchyLevel.WORKER);
+              this.logger.info(`=== Planning complete: ${workerTasks.length} WORKER tasks ready for execution ===`);
+              break;
+            }
+          }
+
           this.logger.info('=== No ready or running tasks, exiting loop ===');
           if (pendingTasks.length > 0) {
             this.logger.warn(
@@ -229,6 +261,16 @@ export class ExecutionCoordinator extends EventEmitter {
         this.logger.debug('Waiting for running tasks to complete...');
         await this.sleep(100);
         continue;
+      }
+
+      // In planning mode, check if only WORKER tasks remain
+      if (this.isPlanningMode) {
+        const nonWorkerReady = readyTasks.filter(t => t.level !== HierarchyLevel.WORKER);
+        if (nonWorkerReady.length === 0 && runningTasks.length === 0) {
+          const workerTasks = readyTasks.filter(t => t.level === HierarchyLevel.WORKER);
+          this.logger.info(`=== Planning complete: ${workerTasks.length} WORKER tasks ready for execution ===`);
+          break;
+        }
       }
 
       // Select tasks respecting concurrency limits and priorities
@@ -281,6 +323,12 @@ export class ExecutionCoordinator extends EventEmitter {
     });
 
     for (const task of sortedTasks) {
+      // In planning mode, skip WORKER tasks - they will be executed later
+      if (this.isPlanningMode && task.level === HierarchyLevel.WORKER) {
+        this.logger.debug(`Planning mode: skipping WORKER task ${task.id.substring(0, 8)}`);
+        continue;
+      }
+
       // Check total concurrency limit
       if (this.activeTasks.size + selected.length >= this.concurrencyConfig.maxTotalConcurrent) {
         this.logger.debug(`Total concurrency limit reached (${this.concurrencyConfig.maxTotalConcurrent})`);

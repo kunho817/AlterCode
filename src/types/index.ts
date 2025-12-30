@@ -288,6 +288,7 @@ export enum MissionStatus {
   DRAFT = 'draft',
   PENDING = 'pending',
   PLANNING = 'planning',
+  PLANNED = 'planned',      // Planning complete, awaiting execution approval
   EXECUTING = 'executing',
   PAUSED = 'paused',
   COMPLETED = 'completed',

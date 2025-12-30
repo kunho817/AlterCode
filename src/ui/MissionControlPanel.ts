@@ -174,6 +174,10 @@ export class MissionControlPanel {
         await this.core.cancelMission(message.payload.missionId);
         break;
 
+      case 'executePlan':
+        await this.core.executePlan(message.payload.missionId);
+        break;
+
       case 'approvalResponse':
         await this.core.respondToApproval(
           message.payload.approvalId,
@@ -1265,8 +1269,12 @@ export class MissionControlPanel {
       }
 
       html += '<div class="mission-controls">';
+      // Show Execute Plan button when planning is complete
+      if (mission.status === 'planned') {
+        html += '<button class="mission-btn" style="background:var(--vscode-button-background);color:var(--vscode-button-foreground)" onclick="executePlan(\\'' + missionId + '\\')">Execute Plan</button>';
+      }
       html += '<button class="mission-btn" onclick="pauseMission(\\'' + missionId + '\\')"' + (mission.status !== 'executing' ? ' disabled' : '') + '>Pause</button>';
-      html += '<button class="mission-btn" onclick="resumeMission(\\'' + missionId + '\\')"' + (mission.status !== 'paused' ? ' disabled' : '') + '>Resume</button>';
+      html += '<button class="mission-btn" onclick="resumeMission(\\'' + missionId + '\\')"' + (mission.status !== 'paused' && mission.status !== 'planned' ? ' disabled' : '') + '>Resume</button>';
       html += '<button class="mission-btn" onclick="cancelMission(\\'' + missionId + '\\')">Cancel</button>';
       html += '</div></div></div>';
 
@@ -1314,8 +1322,12 @@ export class MissionControlPanel {
       html += '<div class="stat-item"><span>Agents:</span><span class="stat-value">' + busyAgents + '/' + agents.length + ' busy</span></div>';
       html += '</div>';
       html += '<div class="mission-controls" style="border-top:none;margin-top:12px;padding-top:0">';
+      // Show Execute Plan button when planning is complete
+      if (activeMission.status === 'planned') {
+        html += '<button class="mission-btn" style="background:var(--vscode-button-background);color:var(--vscode-button-foreground)" onclick="executePlan(\\'' + activeMission.id + '\\')">Execute Plan</button>';
+      }
       html += '<button class="mission-btn" onclick="pauseMission(\\'' + activeMission.id + '\\')"' + (activeMission.status !== 'executing' ? ' disabled' : '') + '>Pause</button>';
-      html += '<button class="mission-btn" onclick="resumeMission(\\'' + activeMission.id + '\\')"' + (activeMission.status !== 'paused' ? ' disabled' : '') + '>Resume</button>';
+      html += '<button class="mission-btn" onclick="resumeMission(\\'' + activeMission.id + '\\')"' + (activeMission.status !== 'paused' && activeMission.status !== 'planned' ? ' disabled' : '') + '>Resume</button>';
       html += '<button class="mission-btn" onclick="cancelMission(\\'' + activeMission.id + '\\')">Cancel</button>';
       html += '</div></div>';
 
@@ -1376,6 +1388,7 @@ export class MissionControlPanel {
     window.pauseMission = function(missionId) { vscode.postMessage({ type: 'pauseMission', payload: { missionId } }); };
     window.resumeMission = function(missionId) { vscode.postMessage({ type: 'resumeMission', payload: { missionId } }); };
     window.cancelMission = function(missionId) { vscode.postMessage({ type: 'cancelMission', payload: { missionId } }); };
+    window.executePlan = function(missionId) { vscode.postMessage({ type: 'executePlan', payload: { missionId } }); };
 
     function formatRole(role) {
       return role.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
