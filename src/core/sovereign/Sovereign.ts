@@ -70,7 +70,7 @@ export class Sovereign {
     console.log('[Sovereign] createMission called');
     this.logger.info('Creating mission from planning document...');
 
-    // Create mission record
+    // Create mission record - use provided config or defaults
     const mission: Mission = {
       id: uuidv4(),
       title: this.extractTitle(planningDocument),
@@ -79,7 +79,7 @@ export class Sovereign {
       status: MissionStatus.PLANNING,
       rootTaskIds: [],
       config: {
-        approvalMode: ApprovalMode.FULLY_MANUAL,
+        approvalMode: ApprovalMode.FULL_AUTOMATION, // Default to full auto, can be overridden
         maxConcurrentWorkers: 10,
       },
       createdAt: new Date(),

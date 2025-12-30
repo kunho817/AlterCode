@@ -50,10 +50,20 @@ export class TaskDecomposer {
 
   /**
    * Check if a task at this level should be decomposed.
+   * All levels except WORKER must decompose to maintain proper hierarchy.
    */
   shouldDecompose(level: HierarchyLevel): boolean {
-    // WORKER level executes, doesn't decompose
-    // SPECIALIST can either decompose or execute based on complexity
+    // Only WORKER level executes directly - all other levels MUST decompose
+    // This ensures proper hierarchy: Sovereign -> Architect -> Strategist -> TeamLead -> Specialist -> Worker
+    return level < HierarchyLevel.WORKER;
+  }
+
+  /**
+   * Check if this level must delegate to the next level.
+   * Specialist MUST always create Worker tasks, not implement directly.
+   */
+  mustDelegate(level: HierarchyLevel): boolean {
+    // All levels except WORKER must delegate to the next level
     return level < HierarchyLevel.WORKER;
   }
 
@@ -325,9 +335,9 @@ For each feature, define clear acceptance criteria and technical requirements.`;
 Consider dependencies between tasks and optimal execution order.`;
 
       case HierarchyLevel.SPECIALIST:
-        return `You are a Specialist. Analyze this task and either:
-1. If complex, break it down into simpler worker tasks
-2. If implementable, provide the implementation plan`;
+        return `You are a Specialist. Break down this implementation task into atomic Worker tasks.
+Each Worker task should be a single, focused unit of work (one file change, one function, etc.).
+You MUST create Worker tasks - do not implement directly.`;
 
       case HierarchyLevel.WORKER:
         return `You are a Worker. Execute this task by providing the actual code implementation.

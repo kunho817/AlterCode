@@ -146,18 +146,30 @@ export class AlterCodeCore extends EventEmitter {
 
   /**
    * Submit a planning document to start a new mission.
+   * @param document The planning document content
+   * @param options.planOnly If true, only plan without executing (for Planning mode)
    */
-  async submitPlanningDocument(document: string): Promise<Mission> {
+  async submitPlanningDocument(
+    document: string,
+    options: { planOnly?: boolean } = {}
+  ): Promise<Mission> {
     this.ensureInitialized();
 
     if (this.activeMission && this.activeMission.status === MissionStatus.EXECUTING) {
       throw new Error('A mission is already in progress. Please pause or cancel it first.');
     }
 
-    this.logger.info('Submitting planning document...');
+    this.logger.info(`Submitting planning document (planOnly: ${options.planOnly ?? false})...`);
+
+    // Update approval mode from current config
+    this.approvalManager.setApprovalMode(this.config.approvalMode);
 
     // Create mission
     const mission = await this.sovereign.createMission(document);
+
+    // Apply current config to mission
+    mission.config.approvalMode = this.config.approvalMode;
+    mission.config.maxConcurrentWorkers = this.config.hierarchy.maxConcurrentWorkers;
 
     // Save mission to state manager (required before startMission can find it)
     await this.stateManager.createMission(mission);
@@ -167,8 +179,14 @@ export class AlterCodeCore extends EventEmitter {
     // Emit event
     this.emitEvent(EventType.MISSION_CREATED, { mission });
 
-    // Start execution
-    await this.startMission(mission.id);
+    // Only start execution if not planOnly mode
+    if (!options.planOnly) {
+      await this.startMission(mission.id);
+    } else {
+      this.logger.info('Planning-only mode: Mission created but not started');
+      mission.status = MissionStatus.PAUSED; // Mark as paused so user can review
+      await this.stateManager.updateMission(mission);
+    }
 
     return mission;
   }

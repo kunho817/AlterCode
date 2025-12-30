@@ -22,7 +22,7 @@ import { Logger } from '../../utils/Logger';
  * Manages approval workflows.
  */
 export class ApprovalManager extends EventEmitter {
-  private readonly defaultMode: ApprovalMode;
+  private currentMode: ApprovalMode;
   private readonly logger: Logger;
 
   private pendingApprovals: Map<string, PendingApproval> = new Map();
@@ -31,8 +31,23 @@ export class ApprovalManager extends EventEmitter {
 
   constructor(defaultMode: ApprovalMode) {
     super();
-    this.defaultMode = defaultMode;
+    this.currentMode = defaultMode;
     this.logger = new Logger('ApprovalManager');
+  }
+
+  /**
+   * Update the default approval mode (called when config changes).
+   */
+  setApprovalMode(mode: ApprovalMode): void {
+    this.logger.info(`Approval mode updated to: ${mode}`);
+    this.currentMode = mode;
+  }
+
+  /**
+   * Get current approval mode.
+   */
+  getApprovalMode(): ApprovalMode {
+    return this.currentMode;
   }
 
   /**
@@ -131,7 +146,7 @@ export class ApprovalManager extends EventEmitter {
       return this.domainOverrides.get(domain)!;
     }
 
-    return this.defaultMode;
+    return this.currentMode;
   }
 
   /**

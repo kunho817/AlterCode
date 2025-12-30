@@ -239,7 +239,8 @@ export class MissionControlPanel {
     const missionMsgId = this.generateId();
 
     try {
-      const mission = await this.core.submitPlanningDocument(content);
+      // Planning mode: only create plan, don't execute
+      const mission = await this.core.submitPlanningDocument(content, { planOnly: true });
 
       const assistantMsg: ChatMessage = {
         id: missionMsgId,
@@ -1209,13 +1210,21 @@ export class MissionControlPanel {
     }
 
     function renderMissionCard(missionId) {
-      if (!hiveState || !hiveState.activeMission) {
-        return '<div class="message-content">Starting mission...</div>';
+      if (!hiveState) {
+        return '<div class="message-content">Loading...</div>';
       }
 
+      // Check if this mission is the active one or if it has completed
       const mission = hiveState.activeMission;
+
+      // If no active mission, it may have completed
+      if (!mission) {
+        return '<div class="message-content" style="color: var(--vscode-testing-iconPassed)">Mission completed successfully.</div>';
+      }
+
       if (mission.id !== missionId) {
-        return '<div class="message-content">Mission not found</div>';
+        // Different mission is active, this one must have finished
+        return '<div class="message-content">Mission finished.</div>';
       }
 
       const { taskQueue, runningTasks, completedTasks, agents } = hiveState;
