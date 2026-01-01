@@ -129,20 +129,67 @@ export async function deactivate(): Promise<void> {
 
 /**
  * Load configuration from VS Code settings
+ *
+ * Reads dual-provider architecture settings:
+ * - Claude (Sovereign/Overlord/Lord tiers): API key, model, mode (api/cli), CLI path
+ * - GLM (Worker tier): API key, model, endpoint
  */
 function loadConfiguration(projectRoot: string): AlterCodeConfig {
   const vsConfig = vscode.workspace.getConfiguration('altercode');
 
+  // Read Claude settings (higher tiers)
+  const claudeApiKey = vsConfig.get<string>('claude.apiKey', '');
+  const claudeModel = vsConfig.get<string>('claude.model', 'claude-opus-4-5-20251101');
+  const claudeMode = vsConfig.get<'api' | 'cli'>('claude.mode', 'api');
+  const claudeCliPath = vsConfig.get<string>('claude.cliPath', 'claude');
+  const claudeTimeout = vsConfig.get<number>('claude.timeout', 300000);
+
+  // Read GLM settings (worker tier)
+  const glmApiKey = vsConfig.get<string>('glm.apiKey', '');
+  const glmModel = vsConfig.get<string>('glm.model', 'glm-4.7');
+  const glmEndpoint = vsConfig.get<string>('glm.endpoint', 'https://api.z.ai/api/coding/paas/v4/chat/completions');
+
+  // Read other settings
+  const verificationStrictness = vsConfig.get<'strict' | 'standard' | 'lenient'>('verification.strictness', 'standard');
+  const enableFallback = vsConfig.get<boolean>('llm.enableFallback', true);
+
   return {
     projectRoot,
+    // Claude configuration for higher tiers
+    claude: {
+      cliPath: claudeCliPath,
+      model: claudeModel.includes('opus') ? 'opus' : claudeModel.includes('sonnet') ? 'sonnet' : 'opus',
+      maxOutputTokens: 16384 as any,
+      timeout: claudeTimeout,
+    },
+    // GLM configuration for worker tier
+    glm: {
+      endpoint: glmEndpoint,
+      apiKey: glmApiKey,
+      model: glmModel,
+      maxTokens: 4096 as any,
+      temperature: 0.7,
+    },
+    // LLM routing configuration
     llm: {
-      provider: vsConfig.get<'claude' | 'openai'>('llm.provider', 'claude'),
-      apiKey: vsConfig.get<string>('llm.apiKey', ''),
-      model: vsConfig.get<string>('llm.model'),
+      provider: 'claude',
+      apiKey: claudeApiKey,
+      model: claudeModel,
+      claudeMode: claudeMode,
+    },
+    // Verification configuration
+    verification: {
+      enabled: true,
+      strictness: verificationStrictness,
+      preGeneration: true,
+      postGeneration: true,
+      autoFix: false,
     },
     maxContextTokens: vsConfig.get<number>('maxContextTokens', 128000),
     logLevel: vsConfig.get<'debug' | 'info' | 'warn' | 'error'>('logLevel', 'info'),
-  };
+    // Fallback setting
+    enableFallback,
+  } as AlterCodeConfig;
 }
 
 /**

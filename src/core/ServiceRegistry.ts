@@ -362,6 +362,8 @@ export function registerServices(
     const claudeMode = config.llm?.claudeMode ?? 'api';
     const claudeApiKey = config.llm?.apiKey ?? '';
     const glmApiKey = config.glm?.apiKey ?? '';
+    // Read enableFallback from config, default to true
+    const enableFallback = (config as any).enableFallback ?? true;
 
     return createHierarchyModelRouter(
       {
@@ -369,7 +371,7 @@ export function registerServices(
         claudeApiKey: claudeMode === 'api' ? claudeApiKey : undefined,
         claudeCliPath: config.claude?.cliPath,
         glmApiKey,
-        enableFallback: true,
+        enableFallback,
         workingDirectory: typeof config.projectRoot === 'string'
           ? config.projectRoot
           : undefined,

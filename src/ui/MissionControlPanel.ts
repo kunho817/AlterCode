@@ -407,6 +407,9 @@ export class MissionControlPanel {
       // Claude settings (higher tiers)
       'claude.apiKey': config.get('claude.apiKey', ''),
       'claude.model': config.get('claude.model', 'claude-opus-4-5-20251101'),
+      'claude.mode': config.get('claude.mode', 'api'),
+      'claude.cliPath': config.get('claude.cliPath', 'claude'),
+      'claude.timeout': config.get('claude.timeout', 300000),
       // GLM settings (worker tier)
       'glm.apiKey': config.get('glm.apiKey', ''),
       'glm.model': config.get('glm.model', 'glm-4.7'),
@@ -417,8 +420,12 @@ export class MissionControlPanel {
       'ui.notifyOnQuotaWarning': config.get('ui.notifyOnQuotaWarning', true),
       'ui.notifyOnApprovalRequired': config.get('ui.notifyOnApprovalRequired', true),
       'ui.showQuotaInStatusBar': config.get('ui.showQuotaInStatusBar', true),
-      // Other settings
+      // Verification settings
+      'verification.strictness': config.get('verification.strictness', 'standard'),
+      // Advanced settings
+      'maxContextTokens': config.get('maxContextTokens', 128000),
       'activity.maxDisplayEntries': config.get('activity.maxDisplayEntries', 100),
+      'llm.enableFallback': config.get('llm.enableFallback', true),
       'conflicts.autoResolveSimple': config.get('conflicts.autoResolveSimple', true),
       'logLevel': config.get('logLevel', 'info'),
     };
@@ -1728,12 +1735,27 @@ export class MissionControlPanel {
             <div class="config-section">
               <div class="config-title">Claude (Higher Tiers: Sovereign, Overlord, Lord)</div>
               <div class="config-row">
+                <span class="config-label">Access Mode</span>
+                <select class="config-select" id="cfgClaudeMode" onchange="updateClaudeMode(this.value)">
+                  <option value="api">API (Direct)</option>
+                  <option value="cli">CLI (Claude Code)</option>
+                </select>
+              </div>
+              <div class="config-row" id="cfgClaudeApiKeyRow">
                 <span class="config-label">API Key</span>
                 <input type="password" class="config-input" id="cfgClaudeApiKey" placeholder="sk-ant-..." onchange="updateConfig('claude.apiKey', this.value)">
+              </div>
+              <div class="config-row" id="cfgClaudeCliPathRow" style="display: none;">
+                <span class="config-label">CLI Path</span>
+                <input type="text" class="config-input" id="cfgClaudeCliPath" placeholder="claude" onchange="updateConfig('claude.cliPath', this.value)">
               </div>
               <div class="config-row">
                 <span class="config-label">Model</span>
                 <input type="text" class="config-input" id="cfgClaudeModel" placeholder="claude-opus-4-5-20251101" onchange="updateConfig('claude.model', this.value)">
+              </div>
+              <div class="config-row">
+                <span class="config-label">Timeout (ms)</span>
+                <input type="number" class="config-input" id="cfgClaudeTimeout" value="300000" style="width: 100px;" onchange="updateConfig('claude.timeout', parseInt(this.value))">
               </div>
             </div>
 
@@ -1782,10 +1804,30 @@ export class MissionControlPanel {
             </div>
 
             <div class="config-section">
+              <div class="config-title">Verification</div>
+              <div class="config-row">
+                <span class="config-label">Strictness</span>
+                <select class="config-select" id="cfgVerificationStrictness" onchange="updateConfig('verification.strictness', this.value)">
+                  <option value="strict">Strict</option>
+                  <option value="standard" selected>Standard</option>
+                  <option value="lenient">Lenient</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="config-section">
               <div class="config-title">Advanced</div>
+              <div class="config-row">
+                <span class="config-label">Max Context Tokens</span>
+                <input type="number" class="config-input" id="cfgMaxContextTokens" value="128000" style="width: 100px;" onchange="updateConfig('maxContextTokens', parseInt(this.value))">
+              </div>
               <div class="config-row">
                 <span class="config-label">Max Activity Entries</span>
                 <input type="number" class="config-input" id="cfgMaxActivity" value="100" style="width: 80px;" onchange="updateConfig('activity.maxDisplayEntries', parseInt(this.value))">
+              </div>
+              <div class="config-row">
+                <span class="config-label">Enable Fallback (GLM)</span>
+                <div class="config-toggle on" id="cfgEnableFallback" onclick="toggleSetting(this, 'llm.enableFallback')"></div>
               </div>
               <div class="config-row">
                 <span class="config-label">Auto-resolve Simple Conflicts</span>
@@ -2039,11 +2081,33 @@ export class MissionControlPanel {
       updateConfig(key, isOn);
     }
 
+    function updateClaudeMode(mode, saveConfig = true) {
+      if (saveConfig) {
+        updateConfig('claude.mode', mode);
+      }
+      // Show/hide API key vs CLI path based on mode
+      const apiKeyRow = document.getElementById('cfgClaudeApiKeyRow');
+      const cliPathRow = document.getElementById('cfgClaudeCliPathRow');
+      if (mode === 'cli') {
+        if (apiKeyRow) apiKeyRow.style.display = 'none';
+        if (cliPathRow) cliPathRow.style.display = 'flex';
+      } else {
+        if (apiKeyRow) apiKeyRow.style.display = 'flex';
+        if (cliPathRow) cliPathRow.style.display = 'none';
+      }
+    }
+
     function updateSettingsUI() {
       const s = state.settings;
 
       // Claude settings
+      if (s['claude.mode']) {
+        document.getElementById('cfgClaudeMode').value = s['claude.mode'];
+        updateClaudeMode(s['claude.mode'], false);  // Don't save - just update UI
+      }
       if (s['claude.model']) document.getElementById('cfgClaudeModel').value = s['claude.model'];
+      if (s['claude.cliPath']) document.getElementById('cfgClaudeCliPath').value = s['claude.cliPath'];
+      if (s['claude.timeout']) document.getElementById('cfgClaudeTimeout').value = s['claude.timeout'];
 
       // GLM settings
       if (s['glm.model']) document.getElementById('cfgGlmModel').value = s['glm.model'];
@@ -2058,7 +2122,11 @@ export class MissionControlPanel {
         if (modeBtn) modeBtn.classList.add('active');
       }
 
-      // Other settings
+      // Verification settings
+      if (s['verification.strictness']) document.getElementById('cfgVerificationStrictness').value = s['verification.strictness'];
+
+      // Advanced settings
+      if (s['maxContextTokens']) document.getElementById('cfgMaxContextTokens').value = s['maxContextTokens'];
       if (s['activity.maxDisplayEntries']) document.getElementById('cfgMaxActivity').value = s['activity.maxDisplayEntries'];
       if (s['logLevel']) document.getElementById('cfgLogLevel').value = s['logLevel'];
 
@@ -2066,6 +2134,7 @@ export class MissionControlPanel {
       setToggle('cfgQuotaNotify', s['ui.notifyOnQuotaWarning'] !== false);
       setToggle('cfgApprovalNotify', s['ui.notifyOnApprovalRequired'] !== false);
       setToggle('cfgShowQuota', s['ui.showQuotaInStatusBar'] !== false);
+      setToggle('cfgEnableFallback', s['llm.enableFallback'] !== false);
       setToggle('cfgAutoResolve', s['conflicts.autoResolveSimple'] !== false);
     }
 

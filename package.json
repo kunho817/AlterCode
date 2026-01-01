@@ -166,6 +166,22 @@
           "default": "claude-opus-4-5-20251101",
           "description": "Claude model to use for higher-tier agents"
         },
+        "altercode.claude.mode": {
+          "type": "string",
+          "enum": ["api", "cli"],
+          "default": "api",
+          "description": "How to access Claude: 'api' for direct API with key, 'cli' for Claude Code CLI"
+        },
+        "altercode.claude.cliPath": {
+          "type": "string",
+          "default": "claude",
+          "description": "Path to Claude Code CLI executable (only used when mode is 'cli')"
+        },
+        "altercode.claude.timeout": {
+          "type": "number",
+          "default": 300000,
+          "description": "Request timeout in milliseconds (default: 5 minutes)"
+        },
         "altercode.glm.apiKey": {
           "type": "string",
           "default": "",
@@ -185,6 +201,11 @@
           "type": "number",
           "default": 128000,
           "description": "Maximum context window size in tokens"
+        },
+        "altercode.llm.enableFallback": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic fallback to GLM when Claude fails"
         },
         "altercode.logLevel": {
           "type": "string",
