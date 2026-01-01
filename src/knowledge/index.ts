@@ -35,3 +35,9 @@ export {
 
 // Knowledge Store
 export { KnowledgeStore, createKnowledgeStore } from './KnowledgeStore';
+
+// Semantic Analyzer
+export {
+  SemanticAnalyzerService,
+  createSemanticAnalyzerService,
+} from './SemanticAnalyzerService';

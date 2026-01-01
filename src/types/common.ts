@@ -48,6 +48,24 @@ export type LineNumber = Brand<number, 'LineNumber'>;
 /** Column number (1-indexed) */
 export type ColumnNumber = Brand<number, 'ColumnNumber'>;
 
+/** Quota window identifier */
+export type QuotaWindowId = Brand<string, 'QuotaWindowId'>;
+
+/** Activity entry identifier */
+export type ActivityEntryId = Brand<string, 'ActivityEntryId'>;
+
+/** Virtual branch identifier */
+export type VirtualBranchId = Brand<string, 'VirtualBranchId'>;
+
+/** Conflict identifier */
+export type ConflictId = Brand<string, 'ConflictId'>;
+
+/** Approval identifier */
+export type ApprovalId = Brand<string, 'ApprovalId'>;
+
+/** Performance entry identifier */
+export type PerfEntryId = Brand<string, 'PerfEntryId'>;
+
 // ============================================================================
 // ID Factories
 // ============================================================================
@@ -59,12 +77,24 @@ export const createTaskId = (): TaskId => uuidv4() as TaskId;
 export const createAgentId = (): AgentId => uuidv4() as AgentId;
 export const createIntentId = (): IntentId => uuidv4() as IntentId;
 export const createSnapshotId = (): SnapshotId => uuidv4() as SnapshotId;
+export const createQuotaWindowId = (): QuotaWindowId => uuidv4() as QuotaWindowId;
+export const createActivityEntryId = (): ActivityEntryId => uuidv4() as ActivityEntryId;
+export const createVirtualBranchId = (): VirtualBranchId => uuidv4() as VirtualBranchId;
+export const createConflictId = (): ConflictId => uuidv4() as ConflictId;
+export const createApprovalId = (): ApprovalId => uuidv4() as ApprovalId;
+export const createPerfEntryId = (): PerfEntryId => `perf_${Date.now()}_${Math.random().toString(36).slice(2)}` as PerfEntryId;
 
 export const toMissionId = (s: string): MissionId => s as MissionId;
 export const toTaskId = (s: string): TaskId => s as TaskId;
 export const toAgentId = (s: string): AgentId => s as AgentId;
 export const toIntentId = (s: string): IntentId => s as IntentId;
 export const toSnapshotId = (s: string): SnapshotId => s as SnapshotId;
+export const toQuotaWindowId = (s: string): QuotaWindowId => s as QuotaWindowId;
+export const toActivityEntryId = (s: string): ActivityEntryId => s as ActivityEntryId;
+export const toVirtualBranchId = (s: string): VirtualBranchId => s as VirtualBranchId;
+export const toConflictId = (s: string): ConflictId => s as ConflictId;
+export const toApprovalId = (s: string): ApprovalId => s as ApprovalId;
+export const toPerfEntryId = (s: string): PerfEntryId => s as PerfEntryId;
 export const toFilePath = (s: string): FilePath => s as FilePath;
 export const toRelativePath = (s: string): RelativePath => s as RelativePath;
 export const toGlobPattern = (s: string): GlobPattern => s as GlobPattern;

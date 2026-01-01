@@ -44,3 +44,15 @@ export {
 
 // Storage Manager
 export { StorageManager, createStorageManager } from './StorageManager';
+
+// Quota Tracker
+export {
+  QuotaTrackerService,
+  createQuotaTrackerService,
+} from './QuotaTrackerService';
+
+// Performance Monitor
+export {
+  PerformanceMonitorService,
+  createPerformanceMonitor,
+} from './PerformanceMonitorService';

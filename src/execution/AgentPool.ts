@@ -26,6 +26,14 @@ import {
   toAgentId,
   CancellationToken,
   isOk,
+  // New service interfaces
+  IQuotaTrackerService,
+  IAgentActivityService,
+  IVirtualBranchService,
+  ActivityEntryId,
+  HierarchyLevel,
+  TaskId,
+  MissionId,
 } from '../types';
 
 /** Maximum agents in pool */
@@ -38,6 +46,27 @@ const AGENT_IDLE_TIMEOUT = 30 * 1000;
 const REQUEST_TIMEOUT = 2 * 60 * 1000;
 
 /**
+ * Agent Pool configuration
+ */
+export interface AgentPoolConfig {
+  /** Maximum agents in pool (default: 5) */
+  readonly maxAgents?: number;
+  /** Agent idle timeout in ms (default: 30000) */
+  readonly idleTimeoutMs?: number;
+  /** Request timeout in ms (default: 120000) */
+  readonly requestTimeoutMs?: number;
+  /** Min interval between requests in ms (default: 100) */
+  readonly minRequestIntervalMs?: number;
+}
+
+const DEFAULT_POOL_CONFIG: Required<AgentPoolConfig> = {
+  maxAgents: MAX_AGENTS,
+  idleTimeoutMs: AGENT_IDLE_TIMEOUT,
+  requestTimeoutMs: REQUEST_TIMEOUT,
+  minRequestIntervalMs: 100,
+};
+
+/**
  * Agent Pool implementation
  */
 export class AgentPool implements IAgentPoolService {
@@ -45,6 +74,12 @@ export class AgentPool implements IAgentPoolService {
   private readonly tokenBudget: ITokenBudgetService;
   private readonly eventBus: IEventBus;
   private readonly logger?: ILogger;
+  private readonly config: Required<AgentPoolConfig>;
+
+  // New integrated services (optional for backward compatibility)
+  private readonly quotaTracker?: IQuotaTrackerService;
+  private readonly activityService?: IAgentActivityService;
+  private readonly branchService?: IVirtualBranchService;
 
   // Agent storage
   private agents: Map<string, PoolAgent> = new Map();
@@ -55,6 +90,7 @@ export class AgentPool implements IAgentPoolService {
     resolve: (result: AgentResponse) => void;
     reject: (error: Error) => void;
     cancellation?: CancellationToken;
+    activityEntryId?: ActivityEntryId;
   }> = [];
 
   // Rate limiting
@@ -66,12 +102,26 @@ export class AgentPool implements IAgentPoolService {
     llmAdapter: ILLMAdapter,
     tokenBudget: ITokenBudgetService,
     eventBus: IEventBus,
-    logger?: ILogger
+    logger?: ILogger,
+    options?: {
+      config?: AgentPoolConfig;
+      quotaTracker?: IQuotaTrackerService;
+      activityService?: IAgentActivityService;
+      branchService?: IVirtualBranchService;
+    }
   ) {
     this.llmAdapter = llmAdapter;
     this.tokenBudget = tokenBudget;
     this.eventBus = eventBus;
     this.logger = logger?.child('AgentPool');
+    this.config = { ...DEFAULT_POOL_CONFIG, ...options?.config };
+
+    // New services (optional)
+    this.quotaTracker = options?.quotaTracker;
+    this.activityService = options?.activityService;
+    this.branchService = options?.branchService;
+
+    this.minRequestInterval = this.config.minRequestIntervalMs;
 
     // Start processing loop
     this.startProcessingLoop();
@@ -87,7 +137,7 @@ export class AgentPool implements IAgentPoolService {
     }
 
     // Create new agent if under limit
-    if (this.agents.size < MAX_AGENTS) {
+    if (this.agents.size < this.config.maxAgents) {
       const agent = this.createAgent();
       agent.status = 'busy';
       return Ok(agent);
@@ -119,11 +169,28 @@ export class AgentPool implements IAgentPoolService {
     request: AgentRequest,
     cancellation?: CancellationToken
   ): Promise<AgentResponse> {
+    // Check quota before queuing (if quota tracker available)
+    if (this.quotaTracker && !this.quotaTracker.canExecute('claude')) {
+      throw new AppError('QUOTA_EXCEEDED', 'API quota exceeded. Please wait for quota reset.');
+    }
+
     return new Promise((resolve, reject) => {
       // Check cancellation
       if (cancellation?.isCancelled) {
         reject(new AppError('CANCELLED', 'Request cancelled'));
         return;
+      }
+
+      // Record activity start (if activity service available)
+      let activityEntryId: ActivityEntryId | undefined;
+      if (this.activityService && request.task) {
+        const agentId = request.agentId ?? this.generateAgentId();
+        activityEntryId = this.activityService.recordStart(
+          request.task.missionId,
+          agentId,
+          request.task.id,
+          request.prompt.substring(0, 500) // Truncate for storage
+        );
       }
 
       // Add to queue
@@ -132,16 +199,23 @@ export class AgentPool implements IAgentPoolService {
         resolve,
         reject,
         cancellation,
+        activityEntryId,
       });
 
       // Set timeout
       setTimeout(() => {
         const index = this.requestQueue.findIndex((r) => r.request === request);
         if (index >= 0) {
-          this.requestQueue.splice(index, 1);
+          const removed = this.requestQueue.splice(index, 1)[0];
+
+          // Record activity failure on timeout
+          if (removed?.activityEntryId && this.activityService) {
+            this.activityService.recordFailure(removed.activityEntryId, 'Request timed out');
+          }
+
           reject(new AppError('TIMEOUT', 'Request timed out'));
         }
-      }, REQUEST_TIMEOUT);
+      }, this.config.requestTimeoutMs);
 
       // Trigger processing
       this.processQueue();
@@ -223,9 +297,21 @@ export class AgentPool implements IAgentPoolService {
 
       // Check cancellation
       if (queued.cancellation?.isCancelled) {
+        // Record activity failure on cancellation
+        if (queued.activityEntryId && this.activityService) {
+          this.activityService.recordFailure(queued.activityEntryId, 'Request cancelled');
+        }
         queued.reject(new AppError('CANCELLED', 'Request cancelled'));
         await this.release(agent.id);
         continue;
+      }
+
+      // Create virtual branch for this task if branch service available
+      if (this.branchService && queued.request.task) {
+        const existingBranch = this.branchService.getBranchForAgent(agent.id);
+        if (!existingBranch) {
+          await this.branchService.createBranch(agent.id, queued.request.task.id);
+        }
       }
 
       // Execute request
@@ -233,10 +319,17 @@ export class AgentPool implements IAgentPoolService {
       this.requestsInFlight++;
 
       try {
-        const response = await this.executeRequest(agent, queued.request);
+        const response = await this.executeRequest(agent, queued.request, queued.activityEntryId);
         queued.resolve(response);
       } catch (error) {
         agent.errorCount++;
+
+        // Record activity failure
+        if (queued.activityEntryId && this.activityService) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.activityService.recordFailure(queued.activityEntryId, errorMessage);
+        }
+
         queued.reject(error as Error);
       } finally {
         this.requestsInFlight--;
@@ -248,7 +341,11 @@ export class AgentPool implements IAgentPoolService {
   /**
    * Execute a request with an agent
    */
-  private async executeRequest(agent: PoolAgent, request: AgentRequest): Promise<AgentResponse> {
+  private async executeRequest(
+    agent: PoolAgent,
+    request: AgentRequest,
+    activityEntryId?: ActivityEntryId
+  ): Promise<AgentResponse> {
     const startTime = Date.now();
 
     this.logger?.debug('Executing request', {
@@ -285,16 +382,38 @@ export class AgentPool implements IAgentPoolService {
       agent.tokenCount += llmResponse.usage?.totalTokens ?? 0;
       agent.lastActiveAt = new Date();
 
+      const duration = Date.now() - startTime;
+      const promptTokens = llmResponse.usage?.promptTokens ?? 0;
+      const completionTokens = llmResponse.usage?.completionTokens ?? 0;
+      const totalTokens = llmResponse.usage?.totalTokens ?? 0;
+
+      // Record quota usage (if quota tracker available)
+      if (this.quotaTracker && request.task?.level) {
+        this.quotaTracker.recordUsage('claude', request.task.level, {
+          sent: promptTokens,
+          received: completionTokens,
+        });
+      }
+
+      // Record activity completion (if activity service available)
+      if (activityEntryId && this.activityService) {
+        this.activityService.recordComplete(activityEntryId, llmResponse.content, {
+          durationMs: duration,
+          tokensSent: promptTokens,
+          tokensReceived: completionTokens,
+        });
+      }
+
       // Build response
       const response: AgentResponse = {
         content: llmResponse.content,
         agentId: agent.id,
         requestId: request.id,
-        duration: Date.now() - startTime,
+        duration,
         tokenUsage: {
-          prompt: llmResponse.usage?.promptTokens ?? 0,
-          completion: llmResponse.usage?.completionTokens ?? 0,
-          total: llmResponse.usage?.totalTokens ?? 0,
+          prompt: promptTokens,
+          completion: completionTokens,
+          total: totalTokens,
         },
         metadata: {
           model: llmResponse.model,
@@ -403,7 +522,7 @@ export class AgentPool implements IAgentPoolService {
   private startProcessingLoop(): void {
     setInterval(() => {
       this.cleanupIdleAgents();
-    }, AGENT_IDLE_TIMEOUT);
+    }, this.config.idleTimeoutMs);
   }
 
   /**
@@ -415,9 +534,17 @@ export class AgentPool implements IAgentPoolService {
     for (const [id, agent] of this.agents) {
       if (
         agent.status === 'idle' &&
-        now - agent.lastActiveAt.getTime() > AGENT_IDLE_TIMEOUT &&
+        now - agent.lastActiveAt.getTime() > this.config.idleTimeoutMs &&
         this.agents.size > 1 // Keep at least one agent
       ) {
+        // Abandon virtual branch if exists
+        if (this.branchService) {
+          const branch = this.branchService.getBranchForAgent(agent.id);
+          if (branch) {
+            this.branchService.abandonBranch(branch.id);
+          }
+        }
+
         this.agents.delete(id);
         this.logger?.debug('Removed idle agent', { agentId: id });
       }
@@ -488,7 +615,13 @@ export function createAgentPool(
   llmAdapter: ILLMAdapter,
   tokenBudget: ITokenBudgetService,
   eventBus: IEventBus,
-  logger?: ILogger
+  logger?: ILogger,
+  options?: {
+    config?: AgentPoolConfig;
+    quotaTracker?: IQuotaTrackerService;
+    activityService?: IAgentActivityService;
+    branchService?: IVirtualBranchService;
+  }
 ): IAgentPoolService {
-  return new AgentPool(llmAdapter, tokenBudget, eventBus, logger);
+  return new AgentPool(llmAdapter, tokenBudget, eventBus, logger, options);
 }

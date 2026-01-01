@@ -11,3 +11,6 @@ export { MissionControlPanel } from './MissionControlPanel';
 
 // Chat Provider
 export { ChatProvider } from './ChatProvider';
+
+// Approval UI
+export { ApprovalUI, createApprovalUI } from './ApprovalUI';

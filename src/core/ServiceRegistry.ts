@@ -25,6 +25,8 @@ import {
   createDefaultCache,
   createInMemoryDatabase,
   createConfigManager,
+  createQuotaTrackerService,
+  createPerformanceMonitor,
 } from '../infrastructure';
 
 // Knowledge
@@ -34,6 +36,7 @@ import {
   createConventionExtractorService,
   createErrorMemoryService,
   createKnowledgeStore,
+  createSemanticAnalyzerService,
 } from '../knowledge';
 
 import { ServiceTokens } from '../infrastructure';
@@ -62,6 +65,9 @@ import {
   createPreflightCheckerService,
   createRollbackService,
   createImpactAnalyzerService,
+  createVirtualBranchService,
+  createMergeEngineService,
+  createApprovalService,
 } from '../protocol';
 
 // Execution
@@ -70,6 +76,7 @@ import {
   createAgentPool,
   createMissionManager,
   createExecutionCoordinator,
+  createAgentActivityService,
 } from '../execution';
 
 // Integration
@@ -121,6 +128,23 @@ export function registerServices(
     createConfigManager(projectRoot)
   );
 
+  // Quota Tracker
+  container.registerFactory(SERVICE_TOKENS.QuotaTracker, () =>
+    createQuotaTrackerService(
+      container.resolve(SERVICE_TOKENS.EventBus),
+      undefined,
+      container.resolve(SERVICE_TOKENS.Logger)
+    )
+  );
+
+  // Performance Monitor
+  container.registerFactory(SERVICE_TOKENS.PerformanceMonitor, () =>
+    createPerformanceMonitor(
+      undefined,
+      container.resolve(SERVICE_TOKENS.Logger)
+    )
+  );
+
   // ===== Knowledge Layer =====
 
   // Knowledge Store
@@ -165,6 +189,13 @@ export function registerServices(
   container.registerFactory(SERVICE_TOKENS.ErrorMemory, () =>
     createErrorMemoryService(
       container.resolve(ServiceTokens.KnowledgeStore),
+      container.resolve(SERVICE_TOKENS.Logger)
+    )
+  );
+
+  // Semantic Analyzer (code region analysis)
+  container.registerFactory(SERVICE_TOKENS.SemanticAnalyzer, () =>
+    createSemanticAnalyzerService(
       container.resolve(SERVICE_TOKENS.Logger)
     )
   );
@@ -303,6 +334,24 @@ export function registerServices(
     )
   );
 
+  // Virtual Branch (change isolation)
+  container.registerFactory(SERVICE_TOKENS.VirtualBranch, () =>
+    createVirtualBranchService(
+      container.resolve(SERVICE_TOKENS.FileSystem),
+      container.resolve(SERVICE_TOKENS.EventBus),
+      container.resolve(SERVICE_TOKENS.Logger)
+    )
+  );
+
+  // Approval Service
+  container.registerFactory(SERVICE_TOKENS.ApprovalService, () =>
+    createApprovalService(
+      container.resolve(SERVICE_TOKENS.EventBus),
+      undefined,
+      container.resolve(SERVICE_TOKENS.Logger)
+    )
+  );
+
   // ===== Integration Layer =====
 
   // Hierarchy Model Router
@@ -376,6 +425,18 @@ export function registerServices(
     );
   });
 
+  // Merge Engine (conflict resolution with AI-assisted fallback)
+  container.registerFactory(SERVICE_TOKENS.MergeEngine, () =>
+    createMergeEngineService(
+      container.resolve(SERVICE_TOKENS.VirtualBranch),
+      container.resolve(SERVICE_TOKENS.SemanticAnalyzer),
+      container.resolve(SERVICE_TOKENS.LLMAdapter),
+      container.resolve(SERVICE_TOKENS.EventBus),
+      undefined,
+      container.resolve(SERVICE_TOKENS.Logger)
+    )
+  );
+
   // ===== Execution Layer =====
 
   // Task Manager
@@ -386,13 +447,27 @@ export function registerServices(
     )
   );
 
-  // Agent Pool
+  // Agent Activity (execution tracking)
+  container.registerFactory(SERVICE_TOKENS.AgentActivity, () =>
+    createAgentActivityService(
+      container.resolve(SERVICE_TOKENS.EventBus),
+      undefined,
+      container.resolve(SERVICE_TOKENS.Logger)
+    )
+  );
+
+  // Agent Pool (with integrated services)
   container.registerFactory(SERVICE_TOKENS.AgentPool, () =>
     createAgentPool(
       container.resolve(SERVICE_TOKENS.LLMAdapter),
       container.resolve(SERVICE_TOKENS.TokenBudget),
       container.resolve(SERVICE_TOKENS.EventBus),
-      container.resolve(SERVICE_TOKENS.Logger)
+      container.resolve(SERVICE_TOKENS.Logger),
+      {
+        quotaTracker: container.resolve(SERVICE_TOKENS.QuotaTracker),
+        activityService: container.resolve(SERVICE_TOKENS.AgentActivity),
+        branchService: container.resolve(SERVICE_TOKENS.VirtualBranch),
+      }
     )
   );
 
@@ -406,7 +481,7 @@ export function registerServices(
     )
   );
 
-  // Execution Coordinator
+  // Execution Coordinator (with full integration)
   container.registerFactory(SERVICE_TOKENS.ExecutionCoordinator, () =>
     createExecutionCoordinator(
       container.resolve(SERVICE_TOKENS.MissionManager),
@@ -418,7 +493,12 @@ export function registerServices(
       container.resolve(SERVICE_TOKENS.ImpactAnalyzer),
       container.resolve(SERVICE_TOKENS.ContextSelector),
       container.resolve(SERVICE_TOKENS.EventBus),
-      container.resolve(SERVICE_TOKENS.Logger)
+      container.resolve(SERVICE_TOKENS.Logger),
+      {
+        approvalService: container.resolve(SERVICE_TOKENS.ApprovalService),
+        branchService: container.resolve(SERVICE_TOKENS.VirtualBranch),
+        mergeEngine: container.resolve(SERVICE_TOKENS.MergeEngine),
+      }
     )
   );
 }

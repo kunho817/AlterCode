@@ -12,17 +12,20 @@ import * as vscode from 'vscode';
 import {
   AlterCodeConfig,
   IEventBus,
+  IApprovalService,
   MissionId,
   toFilePath,
 } from './types';
 
 import { bootstrap, SERVICE_TOKENS, AlterCodeCore } from './core';
-import { MissionControlPanel, ChatProvider } from './ui';
+import { MissionControlPanel, ChatProvider, ApprovalUI, createApprovalUI } from './ui';
 
 // Global state
 let core: AlterCodeCore | undefined;
 let eventBus: IEventBus | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
+let approvalUI: ApprovalUI | undefined;
+let statusBarQuota: vscode.StatusBarItem | undefined;
 
 /**
  * Extension activation
@@ -60,11 +63,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Register UI providers
     registerUIProviders(context);
 
+    // Register ApprovalUI
+    registerApprovalUI(context);
+
     // Set up event handlers
     setupEventHandlers();
 
     // Update status bar
     updateStatusBar(context);
+
+    // Update quota status bar
+    updateQuotaStatusBar(context);
 
     outputChannel.appendLine('AlterCode extension activated successfully');
     vscode.window.showInformationMessage('AlterCode is ready!');
@@ -80,6 +89,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
  */
 export async function deactivate(): Promise<void> {
   outputChannel?.appendLine('AlterCode extension deactivating...');
+
+  // Dispose ApprovalUI
+  if (approvalUI) {
+    approvalUI.dispose();
+    approvalUI = undefined;
+  }
+
+  // Dispose quota status bar
+  if (statusBarQuota) {
+    statusBarQuota.dispose();
+    statusBarQuota = undefined;
+  }
 
   if (core) {
     await core.shutdown();
@@ -291,6 +312,25 @@ function registerUIProviders(context: vscode.ExtensionContext): void {
 }
 
 /**
+ * Register ApprovalUI for handling approval workflows
+ */
+function registerApprovalUI(context: vscode.ExtensionContext): void {
+  if (!core || !eventBus) return;
+
+  try {
+    const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+    const logger = core.getService(SERVICE_TOKENS.Logger);
+
+    approvalUI = createApprovalUI(approvalService, eventBus, logger);
+    context.subscriptions.push(approvalUI);
+
+    outputChannel?.appendLine('ApprovalUI registered successfully');
+  } catch (error) {
+    outputChannel?.appendLine(`ApprovalUI registration skipped: ${(error as Error).message}`);
+  }
+}
+
+/**
  * Set up event handlers
  */
 function setupEventHandlers(): void {
@@ -349,6 +389,66 @@ function setupEventHandlers(): void {
       outputChannel?.appendLine(`Warnings: ${warnings.join(', ')}`);
     }
   });
+
+  // Quota events
+  eventBus.on('quota:warning', async (event) => {
+    const { provider, usageRatio } = event as unknown as { provider: string; usageRatio: number };
+    const percentage = (usageRatio * 100).toFixed(0);
+    outputChannel?.appendLine(`Quota warning: ${provider} at ${percentage}%`);
+    vscode.window.showWarningMessage(
+      `AlterCode: ${provider} API quota at ${percentage}%. Consider slowing down.`
+    );
+    updateQuotaStatusBarDisplay();
+  });
+
+  eventBus.on('quota:exceeded', async (event) => {
+    const { provider, timeUntilResetMs } = event as unknown as { provider: string; timeUntilResetMs: number };
+    const minutesUntilReset = Math.ceil(timeUntilResetMs / 60000);
+    outputChannel?.appendLine(`Quota exceeded: ${provider}. Resets in ${minutesUntilReset} minutes.`);
+    vscode.window.showErrorMessage(
+      `AlterCode: ${provider} API quota exceeded. Resets in ~${minutesUntilReset} minutes.`
+    );
+    updateQuotaStatusBarDisplay();
+  });
+
+  eventBus.on('quota:reset', async (event) => {
+    const { provider } = event as unknown as { provider: string };
+    outputChannel?.appendLine(`Quota reset: ${provider}`);
+    vscode.window.showInformationMessage(`AlterCode: ${provider} API quota has reset.`);
+    updateQuotaStatusBarDisplay();
+  });
+
+  // Approval events
+  eventBus.on('approval:requested', async (event) => {
+    const { approval } = event as unknown as { approval: { id: string; changes: unknown[] } };
+    outputChannel?.appendLine(`Approval requested: ${approval.id} (${approval.changes.length} changes)`);
+  });
+
+  eventBus.on('approval:responded', async (event) => {
+    const { approvalId, result } = event as unknown as {
+      approvalId: string;
+      result: { approved: boolean; action?: string };
+    };
+    const action = result.approved ? 'approved' : (result.action ?? 'rejected');
+    outputChannel?.appendLine(`Approval ${approvalId}: ${action}`);
+  });
+
+  eventBus.on('approval:timeout', async (event) => {
+    const { approvalId } = event as unknown as { approvalId: string };
+    outputChannel?.appendLine(`Approval ${approvalId} timed out`);
+    vscode.window.showWarningMessage('AlterCode: Approval request timed out. Changes were not applied.');
+  });
+
+  // Conflict events
+  eventBus.on('conflict:detected', async (event) => {
+    const { conflictId, filePath } = event as unknown as { conflictId: string; filePath: string };
+    outputChannel?.appendLine(`Conflict detected in ${filePath}`);
+  });
+
+  eventBus.on('conflict:resolved', async (event) => {
+    const { conflictId, strategy } = event as unknown as { conflictId: string; strategy: string };
+    outputChannel?.appendLine(`Conflict ${conflictId} resolved using ${strategy} strategy`);
+  });
 }
 
 /**
@@ -387,4 +487,79 @@ function updateStatusBar(context: vscode.ExtensionContext): void {
       }, 3000);
     });
   }
+}
+
+/**
+ * Update quota status bar
+ */
+function updateQuotaStatusBar(context: vscode.ExtensionContext): void {
+  statusBarQuota = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    99 // Just left of main status bar
+  );
+
+  statusBarQuota.command = 'altercode.showOutput';
+  context.subscriptions.push(statusBarQuota);
+
+  // Initial update
+  updateQuotaStatusBarDisplay();
+
+  // Update periodically
+  const interval = setInterval(() => {
+    updateQuotaStatusBarDisplay();
+  }, 30000); // Every 30 seconds
+
+  context.subscriptions.push({
+    dispose: () => clearInterval(interval),
+  });
+}
+
+/**
+ * Update quota status bar display
+ */
+function updateQuotaStatusBarDisplay(): void {
+  if (!statusBarQuota || !core) {
+    return;
+  }
+
+  const state = core.getState();
+
+  if (!state.quota) {
+    statusBarQuota.hide();
+    return;
+  }
+
+  const claudeStatus = state.quota.claude;
+  const percentage = (claudeStatus.usageRatio * 100).toFixed(0);
+
+  // Choose icon and color based on status
+  let icon: string;
+  let color: string | undefined;
+
+  switch (claudeStatus.status) {
+    case 'exceeded':
+      icon = '$(error)';
+      color = new vscode.ThemeColor('statusBarItem.errorBackground').toString();
+      statusBarQuota.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+      break;
+    case 'critical':
+      icon = '$(warning)';
+      statusBarQuota.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      break;
+    case 'warning':
+      icon = '$(pulse)';
+      statusBarQuota.backgroundColor = undefined;
+      break;
+    default:
+      icon = '$(dashboard)';
+      statusBarQuota.backgroundColor = undefined;
+  }
+
+  statusBarQuota.text = `${icon} ${percentage}%`;
+
+  // Build tooltip
+  const timeUntilReset = Math.ceil(claudeStatus.timeUntilResetMs / 60000);
+  statusBarQuota.tooltip = `Claude API Quota: ${percentage}%\nStatus: ${claudeStatus.status}\nResets in: ~${timeUntilReset} minutes`;
+
+  statusBarQuota.show();
 }

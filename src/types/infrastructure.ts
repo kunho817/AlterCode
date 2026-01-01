@@ -508,6 +508,108 @@ export interface IProtocolStore extends IStore {}
 export interface IExecutionStore extends IStore {}
 
 // ============================================================================
+// Performance Monitoring Types
+// ============================================================================
+
+import { PerfEntryId } from './common';
+
+/** Performance statistics for an operation */
+export interface PerfStats {
+  /** Operation name */
+  readonly name: string;
+  /** Number of times executed */
+  readonly count: number;
+  /** Total time in milliseconds */
+  readonly totalMs: number;
+  /** Average time in milliseconds */
+  readonly avgMs: number;
+  /** Minimum time in milliseconds */
+  readonly minMs: number;
+  /** Maximum time in milliseconds */
+  readonly maxMs: number;
+}
+
+/** Performance monitor configuration */
+export interface PerformanceMonitorConfig {
+  /** Enable/disable monitoring (default: true) */
+  readonly enabled?: boolean;
+  /** Maximum entries to keep in memory (default: 1000) */
+  readonly maxEntries?: number;
+  /** Threshold in ms for slow operation warnings (default: 1000) */
+  readonly slowOperationThresholdMs?: number;
+}
+
+/** Default performance monitor configuration */
+export const DEFAULT_PERFORMANCE_MONITOR_CONFIG: Required<PerformanceMonitorConfig> = {
+  enabled: true,
+  maxEntries: 1000,
+  slowOperationThresholdMs: 1000,
+};
+
+/** Performance monitor interface */
+export interface IPerformanceMonitor {
+  /**
+   * Start timing an operation
+   * @param name - Operation name
+   * @returns Entry ID for matching with end()
+   */
+  start(name: string): PerfEntryId;
+
+  /**
+   * End timing an operation
+   * @param id - Entry ID from start()
+   * @returns Duration in milliseconds
+   */
+  end(id: PerfEntryId): number;
+
+  /**
+   * Measure an async operation
+   * @param name - Operation name
+   * @param fn - Async function to measure
+   * @returns Function result
+   */
+  measure<T>(name: string, fn: () => Promise<T>): Promise<T>;
+
+  /**
+   * Measure a sync operation
+   * @param name - Operation name
+   * @param fn - Function to measure
+   * @returns Function result
+   */
+  measureSync<T>(name: string, fn: () => T): T;
+
+  /**
+   * Get stats for a specific operation
+   * @param name - Operation name
+   * @returns Stats or undefined if not tracked
+   */
+  getStats(name: string): PerfStats | undefined;
+
+  /**
+   * Get all stats sorted by total time
+   * @returns Array of stats
+   */
+  getAllStats(): PerfStats[];
+
+  /**
+   * Get a formatted performance report
+   * @returns Report string
+   */
+  getReport(): string;
+
+  /**
+   * Clear all stats
+   */
+  clearStats(): void;
+
+  /**
+   * Check if monitoring is enabled
+   * @returns true if enabled
+   */
+  isEnabled(): boolean;
+}
+
+// ============================================================================
 // Default Configuration
 // ============================================================================
 

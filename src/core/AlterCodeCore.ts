@@ -39,6 +39,14 @@ import {
   IMissionManager,
   IExecutionCoordinator,
   ILLMAdapter,
+  // New service interfaces
+  IQuotaTrackerService,
+  IPerformanceMonitor,
+  IAgentActivityService,
+  IVirtualBranchService,
+  IMergeEngineService,
+  ISemanticAnalyzerService,
+  IApprovalService,
   AlterCodeConfig,
   HiveState,
   Mission,
@@ -91,6 +99,15 @@ export const SERVICE_TOKENS = {
   ExecutionCoordinator: createServiceToken<IExecutionCoordinator>('ExecutionCoordinator'),
   LLMAdapter: createServiceToken<ILLMAdapter>('LLMAdapter'),
   HierarchyModelRouter: createServiceToken<ILLMAdapter>('HierarchyModelRouter'),
+
+  // New service tokens for migrated features
+  QuotaTracker: createServiceToken<IQuotaTrackerService>('QuotaTracker'),
+  PerformanceMonitor: createServiceToken<IPerformanceMonitor>('PerformanceMonitor'),
+  AgentActivity: createServiceToken<IAgentActivityService>('AgentActivity'),
+  VirtualBranch: createServiceToken<IVirtualBranchService>('VirtualBranch'),
+  MergeEngine: createServiceToken<IMergeEngineService>('MergeEngine'),
+  SemanticAnalyzer: createServiceToken<ISemanticAnalyzerService>('SemanticAnalyzer'),
+  ApprovalService: createServiceToken<IApprovalService>('ApprovalService'),
 };
 
 /**
@@ -108,6 +125,13 @@ export class AlterCodeCore {
   private intentParser!: IIntentParserService;
   private semanticIndex!: ISemanticIndexService;
   private projectSnapshot!: IProjectSnapshotService;
+
+  // New service references (optional - may not be available)
+  private quotaTracker?: IQuotaTrackerService;
+  private activityService?: IAgentActivityService;
+  private approvalService?: IApprovalService;
+  private branchService?: IVirtualBranchService;
+  private mergeEngine?: IMergeEngineService;
 
   // State
   private initialized: boolean = false;
@@ -133,12 +157,56 @@ export class AlterCodeCore {
     });
 
     try {
-      // Resolve services
+      // Resolve core services
       this.missionManager = this.container.resolve(SERVICE_TOKENS.MissionManager);
       this.executionCoordinator = this.container.resolve(SERVICE_TOKENS.ExecutionCoordinator);
       this.intentParser = this.container.resolve(SERVICE_TOKENS.IntentParser);
       this.semanticIndex = this.container.resolve(SERVICE_TOKENS.SemanticIndex);
       this.projectSnapshot = this.container.resolve(SERVICE_TOKENS.ProjectSnapshot);
+
+      // Resolve new services (optional - may fail if not registered)
+      try {
+        this.quotaTracker = this.container.resolve(SERVICE_TOKENS.QuotaTracker);
+        this.logger.debug('QuotaTracker service resolved');
+      } catch {
+        this.logger.debug('QuotaTracker service not available');
+      }
+
+      try {
+        this.activityService = this.container.resolve(SERVICE_TOKENS.AgentActivity);
+        this.logger.debug('AgentActivity service resolved');
+      } catch {
+        this.logger.debug('AgentActivity service not available');
+      }
+
+      try {
+        this.approvalService = this.container.resolve(SERVICE_TOKENS.ApprovalService);
+        this.logger.debug('ApprovalService resolved');
+      } catch {
+        this.logger.debug('ApprovalService not available');
+      }
+
+      try {
+        this.branchService = this.container.resolve(SERVICE_TOKENS.VirtualBranch);
+        this.logger.debug('VirtualBranch service resolved');
+      } catch {
+        this.logger.debug('VirtualBranch service not available');
+      }
+
+      try {
+        this.mergeEngine = this.container.resolve(SERVICE_TOKENS.MergeEngine);
+        this.logger.debug('MergeEngine service resolved');
+      } catch {
+        this.logger.debug('MergeEngine service not available');
+      }
+
+      // Initialize quota tracker
+      if (this.quotaTracker) {
+        const quotaResult = await this.quotaTracker.initialize();
+        if (!quotaResult.ok) {
+          this.logger.warn('Quota tracker initialization failed', { error: quotaResult.error });
+        }
+      }
 
       // Initialize semantic index
       const indexResult = await this.semanticIndex.index(this.config.projectRoot);
@@ -281,7 +349,7 @@ export class AlterCodeCore {
     const missionStats = this.missionManager?.getStats();
     const activeMissions = this.missionManager?.getActive() ?? [];
 
-    return {
+    const state: HiveState = {
       initialized: this.initialized,
       projectRoot: this.config.projectRoot,
       currentMission: this.currentMission,
@@ -290,6 +358,61 @@ export class AlterCodeCore {
         missions: missionStats ?? { total: 0, pending: 0, active: 0, completed: 0, failed: 0, cancelled: 0 },
       },
     };
+
+    // Add quota status if tracker available
+    if (this.quotaTracker) {
+      const claudeStatus = this.quotaTracker.getStatus('claude');
+      state.quota = {
+        claude: {
+          status: claudeStatus.status,
+          usageRatio: claudeStatus.usageRatio,
+          timeUntilResetMs: claudeStatus.timeUntilResetMs,
+        },
+      };
+
+      // Add GLM status if available
+      try {
+        const glmStatus = this.quotaTracker.getStatus('glm');
+        state.quota.glm = {
+          status: glmStatus.status,
+          usageRatio: glmStatus.usageRatio,
+          timeUntilResetMs: glmStatus.timeUntilResetMs,
+        };
+      } catch {
+        // GLM not tracked
+      }
+    }
+
+    // Add activity info if service available
+    if (this.activityService) {
+      const recentEntries = this.activityService.getRecentEntries(10);
+      state.activity = {
+        activeCount: this.activityService.getActiveCount(),
+        recentEntries: recentEntries.map((e) => ({
+          id: e.id as string,
+          agentId: e.agentId as string,
+          status: e.status,
+          timestamp: e.timestamp,
+        })),
+      };
+    }
+
+    // Add pending approvals count if service available
+    if (this.approvalService) {
+      state.pendingApprovals = this.approvalService.getPendingApprovals().length;
+    }
+
+    // Add active branches count if service available
+    if (this.branchService) {
+      state.activeBranches = this.branchService.getActiveBranches().length;
+    }
+
+    // Add active conflicts count if merge engine available
+    if (this.mergeEngine) {
+      state.activeConflicts = this.mergeEngine.getActiveConflicts().length;
+    }
+
+    return state;
   }
 
   /**
@@ -446,6 +569,65 @@ What would you like me to do?`,
     this.eventBus.on('execution:warnings', async (event) => {
       const { warnings } = event as unknown as { warnings: string[] };
       this.logger.warn('Execution warnings', { count: warnings.length, warnings });
+    });
+
+    // Quota events
+    this.eventBus.on('quota:warning', async (event) => {
+      const { provider, usageRatio } = event as unknown as { provider: string; usageRatio: number };
+      this.logger.warn('Quota warning', { provider, usageRatio: `${(usageRatio * 100).toFixed(1)}%` });
+    });
+
+    this.eventBus.on('quota:exceeded', async (event) => {
+      const { provider } = event as unknown as { provider: string };
+      this.logger.error('Quota exceeded', new Error(`${provider} quota exceeded`), { provider });
+    });
+
+    this.eventBus.on('quota:reset', async (event) => {
+      const { provider } = event as unknown as { provider: string };
+      this.logger.info('Quota reset', { provider });
+    });
+
+    // Approval events
+    this.eventBus.on('approval:requested', async (event) => {
+      const { approval } = event as unknown as { approval: { id: string; changes: unknown[] } };
+      this.logger.info('Approval requested', {
+        approvalId: approval.id,
+        changeCount: approval.changes.length,
+      });
+    });
+
+    this.eventBus.on('approval:responded', async (event) => {
+      const { approvalId, result } = event as unknown as {
+        approvalId: string;
+        result: { approved: boolean; action?: string };
+      };
+      this.logger.info('Approval responded', {
+        approvalId,
+        approved: result.approved,
+        action: result.action,
+      });
+    });
+
+    // Branch events
+    this.eventBus.on('branch:created', async (event) => {
+      const { branchId, agentId } = event as unknown as { branchId: string; agentId: string };
+      this.logger.debug('Virtual branch created', { branchId, agentId });
+    });
+
+    this.eventBus.on('branch:merged', async (event) => {
+      const { branchId } = event as unknown as { branchId: string };
+      this.logger.debug('Virtual branch merged', { branchId });
+    });
+
+    // Conflict events
+    this.eventBus.on('conflict:detected', async (event) => {
+      const { conflictId, filePath } = event as unknown as { conflictId: string; filePath: string };
+      this.logger.warn('Conflict detected', { conflictId, filePath });
+    });
+
+    this.eventBus.on('conflict:resolved', async (event) => {
+      const { conflictId, strategy } = event as unknown as { conflictId: string; strategy: string };
+      this.logger.info('Conflict resolved', { conflictId, strategy });
     });
   }
 

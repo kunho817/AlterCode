@@ -248,6 +248,35 @@ export interface HiveState {
       cancelled: number;
     };
   };
+  /** Quota status for API providers (optional - only present when quota tracking enabled) */
+  quota?: {
+    claude: {
+      status: 'ok' | 'warning' | 'critical' | 'exceeded';
+      usageRatio: number;
+      timeUntilResetMs: number;
+    };
+    glm?: {
+      status: 'ok' | 'warning' | 'critical' | 'exceeded';
+      usageRatio: number;
+      timeUntilResetMs: number;
+    };
+  };
+  /** Agent activity summary (optional - only present when activity tracking enabled) */
+  activity?: {
+    activeCount: number;
+    recentEntries: Array<{
+      id: string;
+      agentId: string;
+      status: 'thinking' | 'completed' | 'failed';
+      timestamp: Date;
+    }>;
+  };
+  /** Pending approvals count (optional - only present when approval service enabled) */
+  pendingApprovals?: number;
+  /** Active virtual branches count (optional - only present when branch service enabled) */
+  activeBranches?: number;
+  /** Active conflicts count (optional - only present when merge engine enabled) */
+  activeConflicts?: number;
 }
 
 // ============================================================================

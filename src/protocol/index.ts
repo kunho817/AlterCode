@@ -23,3 +23,21 @@ export { RollbackService, createRollbackService } from './RollbackService';
 
 // Impact Analyzer
 export { ImpactAnalyzerService, createImpactAnalyzerService } from './ImpactAnalyzerService';
+
+// Virtual Branch
+export {
+  VirtualBranchService,
+  createVirtualBranchService,
+} from './VirtualBranchService';
+
+// Merge Engine
+export {
+  MergeEngineService,
+  createMergeEngineService,
+} from './MergeEngineService';
+
+// Approval Service
+export {
+  ApprovalService,
+  createApprovalService,
+} from './ApprovalService';

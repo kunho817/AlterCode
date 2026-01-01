@@ -12,10 +12,20 @@
 export { TaskManager, createTaskManager } from './TaskManager';
 
 // Agent Pool
-export { AgentPool, createAgentPool } from './AgentPool';
+export { AgentPool, createAgentPool, AgentPoolConfig } from './AgentPool';
 
 // Mission Manager
 export { MissionManager, createMissionManager } from './MissionManager';
 
 // Execution Coordinator
-export { ExecutionCoordinator, createExecutionCoordinator } from './ExecutionCoordinator';
+export {
+  ExecutionCoordinator,
+  createExecutionCoordinator,
+  ExecutionCoordinatorConfig,
+} from './ExecutionCoordinator';
+
+// Agent Activity
+export {
+  AgentActivityService,
+  createAgentActivityService,
+} from './AgentActivityService';

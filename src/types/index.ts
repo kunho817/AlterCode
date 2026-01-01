@@ -21,6 +21,12 @@ export {
   type TokenCount,
   type LineNumber,
   type ColumnNumber,
+  type QuotaWindowId,
+  type ActivityEntryId,
+  type VirtualBranchId,
+  type ConflictId,
+  type ApprovalId,
+  type PerfEntryId,
 
   // ID factories
   createMissionId,
@@ -28,11 +34,23 @@ export {
   createAgentId,
   createIntentId,
   createSnapshotId,
+  createQuotaWindowId,
+  createActivityEntryId,
+  createVirtualBranchId,
+  createConflictId,
+  createApprovalId,
+  createPerfEntryId,
   toMissionId,
   toTaskId,
   toAgentId,
   toIntentId,
   toSnapshotId,
+  toQuotaWindowId,
+  toActivityEntryId,
+  toVirtualBranchId,
+  toConflictId,
+  toApprovalId,
+  toPerfEntryId,
   toFilePath,
   toRelativePath,
   toGlobPattern,
@@ -164,6 +182,12 @@ export {
   // IKnowledgeStore exported from knowledge.ts
   // IProtocolStore exported from protocol.ts
   // IExecutionStore exported from execution.ts
+
+  // Performance Monitoring
+  type PerfStats,
+  type PerformanceMonitorConfig,
+  DEFAULT_PERFORMANCE_MONITOR_CONFIG,
+  type IPerformanceMonitor,
 } from './infrastructure';
 
 // ============================================================================
@@ -628,3 +652,99 @@ export {
   // Task types
   type TaskResult,
 } from './extended';
+
+// ============================================================================
+// Quota Types
+// ============================================================================
+
+export {
+  type AIProvider,
+  type LevelUsage,
+  type UsageMetrics,
+  createEmptyUsageMetrics,
+  type UsageLimits,
+  DEFAULT_USAGE_LIMITS,
+  QUOTA_WINDOW_DURATION_MS,
+  type QuotaWindow,
+  type QuotaStatusLevel,
+  type QuotaStatus,
+  type QuotaConfig,
+  DEFAULT_QUOTA_CONFIG,
+  type TokenUsageRecord,
+  type QuotaWarningEvent,
+  type QuotaExceededEvent,
+  type QuotaResetEvent,
+  type QuotaEvent,
+  type IQuotaTrackerService,
+} from './quota';
+
+// ============================================================================
+// Activity Types
+// ============================================================================
+
+export {
+  type ActivityStatus,
+  type ActivityMetrics,
+  type AgentActivityEntry,
+  type ActivityConfig,
+  DEFAULT_ACTIVITY_CONFIG,
+  type ActivityStartedEvent,
+  type ActivityCompletedEvent,
+  type ActivityFailedEvent,
+  type ActivityEvent,
+  type ActivityStats,
+  type IAgentActivityService,
+} from './activity';
+
+// ============================================================================
+// Conflict Types
+// ============================================================================
+
+export {
+  type ChangeType,
+  type BranchStatus,
+  type MergeStrategy,
+  type FileChange as BranchFileChange,
+  createFileChange,
+  type FileSnapshot,
+  type VirtualBranch,
+  type BranchStats,
+  type RegionType,
+  type CodeRegion,
+  type ConflictMarker,
+  type MergeConflict,
+  type MergeInput,
+  type MergeResult,
+  type MergeResolution,
+  type ConflictDetectedEvent,
+  type ConflictResolvedEvent,
+  type BranchCreatedEvent,
+  type BranchMergedEvent,
+  type BranchAbandonedEvent,
+  type ConflictEvent,
+  type IVirtualBranchService,
+  type IMergeEngineService,
+  type ISemanticAnalyzerService,
+} from './conflict';
+
+// ============================================================================
+// Approval Types
+// ============================================================================
+
+export {
+  type ApprovalMode,
+  type ApprovalStatus,
+  type ApprovalAction,
+  type ApprovalResponse,
+  type PendingApproval,
+  type ApprovalResult,
+  type ApprovalConfig,
+  DEFAULT_APPROVAL_CONFIG,
+  HIERARCHY_BOUNDARY_LEVELS,
+  type ApprovalRequestedEvent,
+  type ApprovalRespondedEvent,
+  type ApprovalTimeoutEvent,
+  type ApprovalEvent,
+  type LevelOverride,
+  type IApprovalService,
+} from './approval';

@@ -37,6 +37,12 @@ import {
   CancellationToken,
   Disposable,
   toFilePath,
+  // New service interfaces for integration
+  IApprovalService,
+  ApprovalMode,
+  IVirtualBranchService,
+  IMergeEngineService,
+  VirtualBranchId,
 } from '../types';
 
 /** Maximum retries per task */
@@ -44,6 +50,21 @@ const MAX_TASK_RETRIES = 3;
 
 /** Delay between phase transitions (ms) */
 const PHASE_TRANSITION_DELAY = 100;
+
+/**
+ * Execution Coordinator configuration
+ */
+export interface ExecutionCoordinatorConfig {
+  /** Default approval mode (default: 'step_by_step') */
+  readonly defaultApprovalMode?: ApprovalMode;
+  /** Skip approval for certain task types */
+  readonly skipApprovalFor?: string[];
+}
+
+const DEFAULT_COORDINATOR_CONFIG: Required<ExecutionCoordinatorConfig> = {
+  defaultApprovalMode: 'step_by_step',
+  skipApprovalFor: ['analyze', 'query'],
+};
 
 /**
  * Execution Coordinator implementation
@@ -59,6 +80,19 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
   private readonly contextSelector: IContextSelectorService;
   private readonly eventBus: IEventBus;
   private readonly logger?: ILogger;
+  private readonly config: Required<ExecutionCoordinatorConfig>;
+
+  // Optional: Approval service for change approval workflow
+  private readonly approvalService?: IApprovalService;
+
+  // Optional: Virtual branch service for change isolation
+  private readonly branchService?: IVirtualBranchService;
+
+  // Optional: Merge engine for conflict detection and resolution
+  private readonly mergeEngine?: IMergeEngineService;
+
+  // Track branches created for this execution
+  private readonly executionBranches: Map<string, VirtualBranchId[]> = new Map();
 
   // Active executions
   private activeExecutions: Map<string, {
@@ -81,7 +115,13 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
     impactAnalyzer: IImpactAnalyzerService,
     contextSelector: IContextSelectorService,
     eventBus: IEventBus,
-    logger?: ILogger
+    logger?: ILogger,
+    options?: {
+      config?: ExecutionCoordinatorConfig;
+      approvalService?: IApprovalService;
+      branchService?: IVirtualBranchService;
+      mergeEngine?: IMergeEngineService;
+    }
   ) {
     this.missionManager = missionManager;
     this.taskManager = taskManager;
@@ -93,6 +133,10 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
     this.contextSelector = contextSelector;
     this.eventBus = eventBus;
     this.logger = logger?.child('ExecutionCoordinator');
+    this.config = { ...DEFAULT_COORDINATOR_CONFIG, ...options?.config };
+    this.approvalService = options?.approvalService;
+    this.branchService = options?.branchService;
+    this.mergeEngine = options?.mergeEngine;
 
     // Set up event listeners
     this.setupEventListeners();
@@ -162,25 +206,36 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
       if (cancel.isCancelled) {
         return this.handleCancellation(executionId, plan.missionId);
       }
-      const executionResult = await this.executeExecutionPhase(plan, cancel);
+      const executionResult = await this.executeExecutionPhase(plan, cancel, executionId);
       if (!executionResult.ok) {
         // Rollback on failure
-        await this.handleExecutionFailure(plan.missionId);
+        await this.handleExecutionFailure(plan.missionId, executionId);
         return Err(executionResult.error);
       }
 
-      // Phase 4: Verification
+      // Phase 4: Merge (conflict detection and resolution)
+      if (cancel.isCancelled) {
+        return this.handleCancellation(executionId, plan.missionId);
+      }
+      const mergeResult = await this.executeMergePhase(executionId, plan.missionId, cancel);
+      if (!mergeResult.ok) {
+        // Rollback on merge failure
+        await this.handleMergeFailure(plan.missionId, executionId);
+        return Err(mergeResult.error);
+      }
+
+      // Phase 5: Verification
       if (cancel.isCancelled) {
         return this.handleCancellation(executionId, plan.missionId);
       }
       const verificationResult = await this.executeVerificationPhase(plan, cancel);
       if (!verificationResult.ok) {
         // Rollback on verification failure
-        await this.handleVerificationFailure(plan.missionId);
+        await this.handleVerificationFailure(plan.missionId, executionId);
         return Err(verificationResult.error);
       }
 
-      // Phase 5: Completion
+      // Phase 6: Completion
       await this.missionManager.complete(plan.missionId);
 
       const result: ExecutionResult = {
@@ -302,11 +357,13 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
    */
   private async executeExecutionPhase(
     plan: ExecutionPlan,
-    cancellation: CancellationToken
+    cancellation: CancellationToken,
+    executionId: string
   ): AsyncResult<{ changes: FileChange[] }> {
     this.logger?.debug('Executing execution phase', { missionId: plan.missionId });
 
     const executedChanges: FileChange[] = [];
+    const branchIds: VirtualBranchId[] = [];
 
     // Create backup point
     if (plan.changes && plan.changes.length > 0) {
@@ -320,7 +377,12 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
         return Err(new AppError('CANCELLED', 'Execution cancelled'));
       }
 
-      const taskResult = await this.executeTaskInternal(plan.missionId, taskConfig, cancellation);
+      const taskResult = await this.executeTaskInternal(
+        plan.missionId,
+        taskConfig,
+        cancellation,
+        branchIds
+      );
       if (!taskResult.ok) {
         return Err(taskResult.error);
       }
@@ -331,10 +393,94 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
       }
     }
 
+    // Store branches for this execution
+    if (branchIds.length > 0) {
+      this.executionBranches.set(executionId, branchIds);
+    }
+
+    // Request approval for changes (if approval service available and changes exist)
+    if (this.approvalService && executedChanges.length > 0) {
+      const approvalResult = await this.requestApprovalForChanges(
+        plan.missionId,
+        executedChanges
+      );
+
+      if (!approvalResult.ok) {
+        return Err(approvalResult.error);
+      }
+
+      // Handle approval result
+      if (!approvalResult.value.approved) {
+        return Err(new AppError('APPROVAL_REJECTED', 'Changes rejected by user'));
+      }
+
+      // If modifications were made, use the modified changes
+      if (approvalResult.value.modifications) {
+        executedChanges.length = 0;
+        executedChanges.push(...this.convertToFileChanges(approvalResult.value.modifications));
+      }
+    }
+
     await this.missionManager.advancePhase(plan.missionId);
     await this.delay(PHASE_TRANSITION_DELAY);
 
     return Ok({ changes: executedChanges });
+  }
+
+  /**
+   * Request approval for file changes
+   */
+  private async requestApprovalForChanges(
+    missionId: MissionId,
+    changes: FileChange[]
+  ): AsyncResult<import('../types').ApprovalResult> {
+    if (!this.approvalService) {
+      // No approval service - auto-approve
+      return Ok({
+        approved: true,
+        mode: 'full_automation' as ApprovalMode,
+        automatic: true,
+      });
+    }
+
+    this.logger?.info('Requesting approval for changes', {
+      missionId,
+      changeCount: changes.length,
+    });
+
+    // Convert FileChange to conflict.FileChange format
+    const conflictChanges: import('../types/conflict').FileChange[] = changes.map((c) => ({
+      filePath: c.path as import('../types').FilePath,
+      originalContent: null,
+      modifiedContent: c.content ?? '',
+      diff: '',
+      changeType: c.type === 'write' ? 'create' as const : 'modify' as const,
+    }));
+
+    // Create a pseudo-task for approval
+    const pseudoTask = {
+      id: `approval-${missionId}` as import('../types').TaskId,
+      missionId,
+      type: 'approval' as import('../types').TaskType,
+      status: 'pending' as import('../types').TaskStatus,
+      priority: 'normal' as import('../types').TaskPriority,
+      description: `Approve ${changes.length} file change(s)`,
+      dependencies: [],
+      createdAt: new Date(),
+    };
+
+    return this.approvalService.requestApproval(pseudoTask, conflictChanges);
+  }
+
+  /**
+   * Convert conflict FileChange back to execution FileChange
+   */
+  private convertToFileChanges(modifications: import('../types/conflict').FileChange[]): FileChange[] {
+    return modifications.map((m) => ({
+      path: m.filePath,
+      type: m.changeType === 'create' ? 'write' as const : 'modify' as const,
+      content: m.modifiedContent,
+    }));
   }
 
   /**
@@ -384,7 +530,8 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
   private async executeTaskInternal(
     missionId: MissionId,
     taskConfig: ExecutionPlan['tasks'][0],
-    cancellation: CancellationToken
+    cancellation: CancellationToken,
+    branchIds: VirtualBranchId[]
   ): AsyncResult<{ changes?: FileChange[] }> {
     // Create task
     const createResult = await this.taskManager.create(missionId, {
@@ -400,6 +547,21 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
 
     const task = createResult.value;
     let retries = 0;
+
+    // Create virtual branch for this task (if branch service available)
+    let branchId: VirtualBranchId | undefined;
+    if (this.branchService) {
+      const agentId = `agent-${task.id}` as import('../types').AgentId;
+      const branchResult = await this.branchService.createBranch(agentId, task.id);
+      if (branchResult.ok) {
+        branchId = branchResult.value.id;
+        branchIds.push(branchId);
+        this.logger?.debug('Created virtual branch for task', {
+          taskId: task.id,
+          branchId,
+        });
+      }
+    }
 
     while (retries < MAX_TASK_RETRIES) {
       if (cancellation.isCancelled) {
@@ -426,6 +588,7 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
           {
             id: task.id as string,
             type: taskConfig.type,
+            task, // Pass the task for proper tracking
             prompt: taskConfig.prompt ?? taskConfig.description,
             context: contextResult.ok ? contextResult.value.items : [],
             systemContext: this.buildSystemContext(task),
@@ -436,6 +599,24 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
 
         // Parse response for changes
         const changes = this.parseChangesFromResponse(response.content);
+
+        // Record changes to virtual branch (if available)
+        if (branchId && this.branchService && changes.length > 0) {
+          for (const change of changes) {
+            const conflictChange: import('../types/conflict').FileChange = {
+              filePath: change.path as import('../types').FilePath,
+              originalContent: null,
+              modifiedContent: change.content ?? '',
+              diff: '',
+              changeType: change.type === 'write' ? 'create' : 'modify',
+            };
+            this.branchService.recordChange(branchId, conflictChange);
+          }
+          this.logger?.debug('Recorded changes to virtual branch', {
+            branchId,
+            changeCount: changes.length,
+          });
+        }
 
         // Complete task
         await this.taskManager.complete(task.id, {
@@ -509,23 +690,142 @@ export class ExecutionCoordinator implements IExecutionCoordinatorService {
   }
 
   /**
+   * Execute merge phase - detect and resolve conflicts between branches
+   */
+  private async executeMergePhase(
+    executionId: string,
+    missionId: MissionId,
+    cancellation: CancellationToken
+  ): AsyncResult<void> {
+    // Skip if no merge engine or branch service
+    if (!this.mergeEngine || !this.branchService) {
+      this.logger?.debug('Skipping merge phase - no merge engine or branch service');
+      return Ok(undefined);
+    }
+
+    const branchIds = this.executionBranches.get(executionId);
+    if (!branchIds || branchIds.length === 0) {
+      this.logger?.debug('No branches to merge');
+      return Ok(undefined);
+    }
+
+    this.logger?.info('Executing merge phase', {
+      executionId,
+      branchCount: branchIds.length,
+    });
+
+    // Detect conflicts between all branches
+    const conflicts = this.mergeEngine.detectConflicts();
+
+    if (conflicts.length > 0) {
+      this.logger?.warn('Conflicts detected', { conflictCount: conflicts.length });
+
+      // Attempt to resolve each conflict
+      for (const conflict of conflicts) {
+        if (cancellation.isCancelled) {
+          return Err(new AppError('CANCELLED', 'Merge cancelled'));
+        }
+
+        const resolveResult = await this.mergeEngine.resolveConflict(conflict);
+        if (!resolveResult.ok) {
+          return Err(new AppError(
+            'MERGE_FAILED',
+            `Failed to resolve conflict in ${conflict.filePath}: ${resolveResult.error.message}`
+          ));
+        }
+
+        // Apply the resolution
+        const applyResult = await this.mergeEngine.applyResolution(resolveResult.value);
+        if (!applyResult.ok) {
+          return Err(new AppError(
+            'MERGE_FAILED',
+            `Failed to apply resolution: ${applyResult.error.message}`
+          ));
+        }
+
+        this.logger?.info('Conflict resolved', {
+          conflictId: conflict.id,
+          filePath: conflict.filePath,
+          strategy: resolveResult.value.strategy,
+        });
+      }
+    }
+
+    // Merge all branches to apply changes
+    for (const branchId of branchIds) {
+      const mergeResult = await this.branchService.mergeBranch(branchId);
+      if (!mergeResult.ok) {
+        this.logger?.error('Failed to merge branch', mergeResult.error, { branchId });
+        // Continue with other branches - partial merge is better than none
+      } else {
+        this.logger?.debug('Branch merged successfully', { branchId });
+      }
+    }
+
+    await this.missionManager.advancePhase(missionId);
+    await this.delay(PHASE_TRANSITION_DELAY);
+
+    return Ok(undefined);
+  }
+
+  /**
    * Handle execution failure
    */
-  private async handleExecutionFailure(missionId: MissionId): Promise<void> {
+  private async handleExecutionFailure(missionId: MissionId, executionId?: string): Promise<void> {
     this.logger?.warn('Handling execution failure, rolling back', { missionId });
+
+    // Abandon any branches created for this execution
+    this.cleanupExecutionBranches(executionId);
 
     await this.missionManager.rollback(missionId);
     await this.missionManager.fail(missionId, 'Execution failed, changes rolled back');
   }
 
   /**
+   * Handle merge failure
+   */
+  private async handleMergeFailure(missionId: MissionId, executionId?: string): Promise<void> {
+    this.logger?.warn('Handling merge failure, rolling back', { missionId });
+
+    // Abandon any branches created for this execution
+    this.cleanupExecutionBranches(executionId);
+
+    await this.missionManager.rollback(missionId);
+    await this.missionManager.fail(missionId, 'Merge failed, changes rolled back');
+  }
+
+  /**
    * Handle verification failure
    */
-  private async handleVerificationFailure(missionId: MissionId): Promise<void> {
+  private async handleVerificationFailure(missionId: MissionId, executionId?: string): Promise<void> {
     this.logger?.warn('Handling verification failure, rolling back', { missionId });
+
+    // Abandon any branches created for this execution
+    this.cleanupExecutionBranches(executionId);
 
     await this.missionManager.rollback(missionId);
     await this.missionManager.fail(missionId, 'Verification failed, changes rolled back');
+  }
+
+  /**
+   * Cleanup branches created for an execution
+   */
+  private cleanupExecutionBranches(executionId?: string): void {
+    if (!executionId || !this.branchService) {
+      return;
+    }
+
+    const branchIds = this.executionBranches.get(executionId);
+    if (branchIds) {
+      for (const branchId of branchIds) {
+        this.branchService.abandonBranch(branchId);
+      }
+      this.executionBranches.delete(executionId);
+      this.logger?.debug('Cleaned up execution branches', {
+        executionId,
+        branchCount: branchIds.length,
+      });
+    }
   }
 
   /**
@@ -731,7 +1031,13 @@ export function createExecutionCoordinator(
   impactAnalyzer: IImpactAnalyzerService,
   contextSelector: IContextSelectorService,
   eventBus: IEventBus,
-  logger?: ILogger
+  logger?: ILogger,
+  options?: {
+    config?: ExecutionCoordinatorConfig;
+    approvalService?: IApprovalService;
+    branchService?: IVirtualBranchService;
+    mergeEngine?: IMergeEngineService;
+  }
 ): IExecutionCoordinatorService {
   return new ExecutionCoordinator(
     missionManager,
@@ -743,6 +1049,7 @@ export function createExecutionCoordinator(
     impactAnalyzer,
     contextSelector,
     eventBus,
-    logger
+    logger,
+    options
   );
 }
