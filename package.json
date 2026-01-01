@@ -70,6 +70,26 @@
         "command": "altercode.showOutput",
         "title": "Show Output",
         "category": "AlterCode"
+      },
+      {
+        "command": "altercode.showPendingApprovals",
+        "title": "Show Pending Approvals",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.setApprovalMode",
+        "title": "Set Approval Mode",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.showConflicts",
+        "title": "Show Merge Conflicts",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.approveAll",
+        "title": "Approve All Pending",
+        "category": "AlterCode"
       }
     ],
     "viewsContainers": {
@@ -114,7 +134,11 @@
         { "command": "altercode.refactorSelection", "when": "editorHasSelection" },
         { "command": "altercode.cancelExecution" },
         { "command": "altercode.openSettings" },
-        { "command": "altercode.showOutput" }
+        { "command": "altercode.showOutput" },
+        { "command": "altercode.showPendingApprovals" },
+        { "command": "altercode.setApprovalMode" },
+        { "command": "altercode.showConflicts" },
+        { "command": "altercode.approveAll" }
       ]
     },
     "keybindings": [
@@ -164,6 +188,37 @@
           "enum": ["strict", "standard", "lenient"],
           "default": "standard",
           "description": "Verification strictness level"
+        },
+        "altercode.ui.showQuotaInStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show quota percentage in status bar"
+        },
+        "altercode.ui.notifyOnApprovalRequired": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notification when approval is required"
+        },
+        "altercode.ui.notifyOnQuotaWarning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notification on quota warnings"
+        },
+        "altercode.activity.maxDisplayEntries": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum activity entries to display"
+        },
+        "altercode.conflicts.autoResolveSimple": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-resolve simple non-overlapping conflicts"
+        },
+        "altercode.approval.defaultMode": {
+          "type": "string",
+          "enum": ["full_automation", "step_by_step", "fully_manual"],
+          "default": "step_by_step",
+          "description": "Default approval mode for changes"
         }
       }
     }

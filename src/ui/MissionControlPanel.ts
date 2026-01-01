@@ -134,8 +134,36 @@ export class MissionControlPanel {
         this.eventBus.emit('ui:refresh', {});
         break;
 
+      case 'exportActivity':
+        this.exportActivityToJson(message.activities);
+        break;
+
+      case 'approveTask':
+        vscode.commands.executeCommand('altercode.showPendingApprovals');
+        break;
+
+      case 'setApprovalMode':
+        vscode.commands.executeCommand('altercode.setApprovalMode');
+        break;
+
       default:
         this.logger?.warn('Unknown message type', { type: message.type });
+    }
+  }
+
+  /**
+   * Export activity data to JSON file
+   */
+  private async exportActivityToJson(activities: unknown[]): Promise<void> {
+    const content = JSON.stringify(activities, null, 2);
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file('altercode-activity.json'),
+      filters: { 'JSON': ['json'] },
+    });
+
+    if (uri) {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
+      vscode.window.showInformationMessage(`Activity exported to ${uri.fsPath}`);
     }
   }
 
@@ -202,17 +230,15 @@ export class MissionControlPanel {
       --text-secondary: var(--vscode-descriptionForeground);
       --accent: var(--vscode-button-background);
       --border: var(--vscode-panel-border);
+      --input-bg: var(--vscode-input-background);
+      --input-border: var(--vscode-input-border);
       --success: #4caf50;
       --warning: #ff9800;
       --error: #f44336;
       --info: #2196f3;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: var(--vscode-font-family);
@@ -226,15 +252,12 @@ export class MissionControlPanel {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
       padding-bottom: 12px;
       border-bottom: 1px solid var(--border);
     }
 
-    .header h1 {
-      font-size: 18px;
-      font-weight: 500;
-    }
+    .header h1 { font-size: 18px; font-weight: 500; }
 
     .header-actions button {
       background: var(--accent);
@@ -246,9 +269,38 @@ export class MissionControlPanel {
       font-size: 12px;
     }
 
+    /* Tab Navigation */
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab:hover { color: var(--text-primary); }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Stats Grid */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
       gap: 12px;
       margin-bottom: 20px;
     }
@@ -260,51 +312,31 @@ export class MissionControlPanel {
       text-align: center;
     }
 
-    .stat-value {
-      font-size: 24px;
-      font-weight: bold;
-      color: var(--accent);
-    }
+    .stat-value { font-size: 24px; font-weight: bold; color: var(--accent); }
+    .stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
 
-    .stat-label {
-      font-size: 11px;
-      color: var(--text-secondary);
-      margin-top: 4px;
-    }
-
-    .section {
-      margin-bottom: 20px;
-    }
-
+    /* Section */
+    .section { margin-bottom: 20px; }
     .section-header {
       font-size: 14px;
       font-weight: 500;
       margin-bottom: 12px;
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
     }
 
-    .mission-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
+    /* Mission Cards */
+    .mission-list { display: flex; flex-direction: column; gap: 8px; }
     .mission-card {
       background: var(--bg-secondary);
       border-radius: 6px;
       padding: 12px;
       border-left: 3px solid var(--accent);
     }
-
-    .mission-card.active {
-      border-left-color: var(--success);
-    }
-
-    .mission-card.failed {
-      border-left-color: var(--error);
-    }
+    .mission-card.active { border-left-color: var(--success); }
+    .mission-card.failed { border-left-color: var(--error); }
 
     .mission-header {
       display: flex;
@@ -312,12 +344,7 @@ export class MissionControlPanel {
       align-items: flex-start;
       margin-bottom: 8px;
     }
-
-    .mission-title {
-      font-weight: 500;
-      font-size: 13px;
-    }
-
+    .mission-title { font-weight: 500; font-size: 13px; }
     .mission-status {
       font-size: 10px;
       padding: 2px 6px;
@@ -325,7 +352,6 @@ export class MissionControlPanel {
       background: var(--accent);
       color: white;
     }
-
     .mission-status.active { background: var(--success); }
     .mission-status.failed { background: var(--error); }
     .mission-status.cancelled { background: var(--warning); }
@@ -337,7 +363,6 @@ export class MissionControlPanel {
       overflow: hidden;
       margin: 8px 0;
     }
-
     .progress-fill {
       height: 100%;
       background: var(--accent);
@@ -351,6 +376,7 @@ export class MissionControlPanel {
       color: var(--text-secondary);
     }
 
+    /* Task List */
     .task-list {
       display: flex;
       flex-direction: column;
@@ -374,13 +400,9 @@ export class MissionControlPanel {
       height: 8px;
       border-radius: 50%;
       background: var(--text-secondary);
+      flex-shrink: 0;
     }
-
-    .task-status-icon.running {
-      background: var(--info);
-      animation: pulse 1s infinite;
-    }
-
+    .task-status-icon.running { background: var(--info); animation: pulse 1s infinite; }
     .task-status-icon.completed { background: var(--success); }
     .task-status-icon.failed { background: var(--error); }
 
@@ -389,25 +411,16 @@ export class MissionControlPanel {
       50% { opacity: 0.5; }
     }
 
+    /* Empty State */
     .empty-state {
       text-align: center;
       padding: 40px 20px;
       color: var(--text-secondary);
     }
+    .empty-state svg { width: 48px; height: 48px; opacity: 0.5; margin-bottom: 12px; }
 
-    .empty-state svg {
-      width: 48px;
-      height: 48px;
-      opacity: 0.5;
-      margin-bottom: 12px;
-    }
-
-    .warnings-list {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
+    /* Warnings */
+    .warnings-list { display: flex; flex-direction: column; gap: 4px; }
     .warning-item {
       display: flex;
       align-items: center;
@@ -418,60 +431,304 @@ export class MissionControlPanel {
       font-size: 12px;
       color: var(--warning);
     }
+
+    /* Activity Tab Styles */
+    .activity-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .activity-controls select,
+    .activity-controls input {
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      color: var(--text-primary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .activity-controls input { flex: 1; min-width: 150px; }
+
+    .activity-controls button {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 4px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .activity-controls button:hover { background: var(--accent); }
+
+    .activity-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .activity-item {
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 12px;
+    }
+
+    .activity-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .activity-agent {
+      font-weight: 500;
+      color: var(--accent);
+    }
+
+    .activity-time { color: var(--text-secondary); font-size: 11px; }
+
+    .activity-content {
+      color: var(--text-secondary);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .activity-metrics {
+      display: flex;
+      gap: 12px;
+      margin-top: 6px;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    /* Quota Section */
+    .quota-section {
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+
+    .quota-provider {
+      margin-bottom: 12px;
+    }
+
+    .quota-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .quota-name { font-weight: 500; font-size: 13px; }
+    .quota-percentage { font-size: 12px; color: var(--accent); }
+
+    .quota-bar {
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .quota-fill {
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+    .quota-fill.ok { background: var(--success); }
+    .quota-fill.warning { background: var(--warning); }
+    .quota-fill.critical, .quota-fill.exceeded { background: var(--error); }
+
+    .quota-meta {
+      display: flex;
+      gap: 12px;
+      margin-top: 6px;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    /* Approval Badge */
+    .approval-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--warning);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    /* Settings Section */
+    .settings-section { margin-bottom: 20px; }
+    .settings-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .settings-label { font-size: 12px; }
+    .settings-value {
+      font-size: 11px;
+      color: var(--text-secondary);
+      background: var(--input-bg);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>🐝 Mission Control</h1>
+    <h1>Mission Control</h1>
     <div class="header-actions">
       <button onclick="refresh()">Refresh</button>
     </div>
   </div>
 
-  <div class="stats-grid" id="stats">
-    <div class="stat-card">
-      <div class="stat-value" id="activeMissions">0</div>
-      <div class="stat-label">Active Missions</div>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('missions')">Missions</button>
+    <button class="tab" onclick="switchTab('activity')">Activity</button>
+    <button class="tab" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <!-- Missions Tab -->
+  <div id="missions-tab" class="tab-content active">
+    <div class="stats-grid" id="stats">
+      <div class="stat-card">
+        <div class="stat-value" id="activeMissions">0</div>
+        <div class="stat-label">Active</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="completedMissions">0</div>
+        <div class="stat-label">Completed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="runningTasks">0</div>
+        <div class="stat-label">Running</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="pendingApprovals">0</div>
+        <div class="stat-label">Approvals</div>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value" id="completedMissions">0</div>
-      <div class="stat-label">Completed</div>
+
+    <div class="section" id="approvalsSection" style="display: none;">
+      <div class="section-header">
+        Pending Approvals
+        <span class="approval-badge" onclick="showApprovals()">Review All</span>
+      </div>
+      <div class="task-list" id="approvalsList"></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value" id="runningTasks">0</div>
-      <div class="stat-label">Running Tasks</div>
+
+    <div class="section">
+      <div class="section-header">Active Missions</div>
+      <div class="mission-list" id="missionList"></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value" id="totalTasks">0</div>
-      <div class="stat-label">Total Tasks</div>
+
+    <div class="section">
+      <div class="section-header">Recent Tasks</div>
+      <div class="task-list" id="taskList"></div>
+    </div>
+
+    <div class="section" id="warningsSection" style="display: none;">
+      <div class="section-header">Warnings</div>
+      <div class="warnings-list" id="warningsList"></div>
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-header">Active Missions</div>
-    <div class="mission-list" id="missionList">
-      <div class="empty-state">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-        <div>No active missions</div>
-        <div style="font-size: 11px; margin-top: 4px;">Start a new mission to see it here</div>
+  <!-- Activity Tab -->
+  <div id="activity-tab" class="tab-content">
+    <div class="activity-controls">
+      <select id="activityFilter" onchange="filterActivity()">
+        <option value="all">All Activities</option>
+        <option value="thinking">Thinking</option>
+        <option value="completed">Completed</option>
+        <option value="failed">Failed</option>
+      </select>
+      <input type="text" id="activitySearch" placeholder="Search activities..." oninput="filterActivity()">
+      <button onclick="exportActivity()">Export JSON</button>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <span>Activity Log</span>
+        <span id="activityCount" style="font-size: 11px; color: var(--text-secondary);">0 entries</span>
+      </div>
+      <div class="activity-list" id="activityList"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">Performance Summary</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="avgDuration">0s</div>
+          <div class="stat-label">Avg Duration</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="totalTokens">0</div>
+          <div class="stat-label">Total Tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="successRate">0%</div>
+          <div class="stat-label">Success Rate</div>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-header">Recent Tasks</div>
-    <div class="task-list" id="taskList">
-      <div class="empty-state" style="padding: 20px;">
-        <div>No tasks yet</div>
+  <!-- Settings Tab -->
+  <div id="settings-tab" class="tab-content">
+    <div class="section">
+      <div class="section-header">API Quota</div>
+      <div class="quota-section" id="quotaSection">
+        <div class="quota-provider">
+          <div class="quota-header">
+            <span class="quota-name">Claude</span>
+            <span class="quota-percentage" id="claudeQuotaPercent">0%</span>
+          </div>
+          <div class="quota-bar">
+            <div class="quota-fill ok" id="claudeQuotaBar" style="width: 0%"></div>
+          </div>
+          <div class="quota-meta">
+            <span id="claudeQuotaCalls">0 calls</span>
+            <span id="claudeQuotaReset">Resets in: --</span>
+          </div>
+        </div>
+        <div class="quota-provider">
+          <div class="quota-header">
+            <span class="quota-name">GLM</span>
+            <span class="quota-percentage" id="glmQuotaPercent">0%</span>
+          </div>
+          <div class="quota-bar">
+            <div class="quota-fill ok" id="glmQuotaBar" style="width: 0%"></div>
+          </div>
+          <div class="quota-meta">
+            <span id="glmQuotaCalls">0 calls</span>
+            <span id="glmQuotaReset">Resets in: --</span>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="section" id="warningsSection" style="display: none;">
-    <div class="section-header">⚠️ Warnings</div>
-    <div class="warnings-list" id="warningsList"></div>
+    <div class="section">
+      <div class="section-header">Approval Mode</div>
+      <div class="settings-item">
+        <span class="settings-label">Current Mode</span>
+        <span class="settings-value" id="approvalMode">step_by_step</span>
+      </div>
+      <button onclick="changeApprovalMode()" style="width: 100%; margin-top: 8px;">
+        Change Mode
+      </button>
+    </div>
   </div>
 
   <script>
@@ -481,60 +738,170 @@ export class MissionControlPanel {
       activeMissions: [],
       stats: { missions: { total: 0, active: 0, completed: 0 } },
       tasks: [],
-      warnings: []
+      warnings: [],
+      activities: [],
+      quota: null,
+      pendingApprovals: [],
+      approvalMode: 'step_by_step'
     };
 
-    // Handle messages from extension
+    let activityFilter = 'all';
+    let activitySearchTerm = '';
+
     window.addEventListener('message', event => {
       const message = event.data;
-
       switch (message.type) {
         case 'stateUpdate':
-          state = message.payload;
-          updateUI();
+          state = { ...state, ...message.payload };
+          updateAllUI();
           break;
-
         case 'missionCreated':
+          state.activeMissions = state.activeMissions || [];
           state.activeMissions.push(message.payload);
-          updateUI();
+          updateMissionsUI();
           break;
-
         case 'progressUpdate':
           updateMissionProgress(message.payload);
           break;
-
         case 'taskStarted':
         case 'taskCompleted':
           updateTaskList(message.payload);
           break;
-
         case 'warnings':
           state.warnings = message.payload;
           updateWarnings();
           break;
+        case 'activityUpdate':
+          state.activities = message.payload;
+          updateActivityUI();
+          break;
       }
     });
 
-    function updateUI() {
-      // Update stats
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelector(\`[onclick="switchTab('\${tabName}')"]\`).classList.add('active');
+      document.getElementById(\`\${tabName}-tab\`).classList.add('active');
+    }
+
+    function updateAllUI() {
+      updateMissionsUI();
+      updateActivityUI();
+      updateSettingsUI();
+    }
+
+    function updateMissionsUI() {
       document.getElementById('activeMissions').textContent = state.stats?.missions?.active ?? 0;
       document.getElementById('completedMissions').textContent = state.stats?.missions?.completed ?? 0;
       document.getElementById('runningTasks').textContent = state.tasks?.filter(t => t.status === 'running').length ?? 0;
-      document.getElementById('totalTasks').textContent = state.tasks?.length ?? 0;
+      document.getElementById('pendingApprovals').textContent = state.pendingApprovals?.length ?? 0;
 
-      // Update mission list
       const missionList = document.getElementById('missionList');
-      if (state.activeMissions && state.activeMissions.length > 0) {
+      if (state.activeMissions?.length > 0) {
         missionList.innerHTML = state.activeMissions.map(renderMission).join('');
       } else {
-        missionList.innerHTML = renderEmptyState();
+        missionList.innerHTML = renderEmptyState('No active missions', 'Start a new mission');
       }
 
-      // Update task list
       const taskList = document.getElementById('taskList');
-      if (state.tasks && state.tasks.length > 0) {
+      if (state.tasks?.length > 0) {
         taskList.innerHTML = state.tasks.slice(0, 10).map(renderTask).join('');
+      } else {
+        taskList.innerHTML = renderEmptyState('No tasks yet', '');
       }
+
+      // Approvals section
+      const approvalsSection = document.getElementById('approvalsSection');
+      if (state.pendingApprovals?.length > 0) {
+        approvalsSection.style.display = 'block';
+        document.getElementById('approvalsList').innerHTML = state.pendingApprovals.map(a => \`
+          <div class="task-item">
+            <div class="task-status-icon" style="background: var(--warning);"></div>
+            <span>\${escapeHtml(a.taskId || 'Pending')}: \${a.changes?.length ?? 0} changes</span>
+            <span class="approval-badge" onclick="showApprovals()">Review</span>
+          </div>
+        \`).join('');
+      } else {
+        approvalsSection.style.display = 'none';
+      }
+
+      updateWarnings();
+    }
+
+    function updateActivityUI() {
+      const activities = filterActivities(state.activities || []);
+      document.getElementById('activityCount').textContent = \`\${activities.length} entries\`;
+
+      const activityList = document.getElementById('activityList');
+      if (activities.length > 0) {
+        activityList.innerHTML = activities.slice(0, 50).map(renderActivity).join('');
+      } else {
+        activityList.innerHTML = renderEmptyState('No activities', '');
+      }
+
+      // Performance summary
+      const completedActivities = (state.activities || []).filter(a => a.status === 'completed');
+      const avgDuration = completedActivities.length > 0
+        ? completedActivities.reduce((sum, a) => sum + (a.durationMs || 0), 0) / completedActivities.length / 1000
+        : 0;
+      const totalTokens = (state.activities || []).reduce((sum, a) => sum + (a.tokensUsed || 0), 0);
+      const successRate = state.activities?.length > 0
+        ? (completedActivities.length / state.activities.length * 100)
+        : 0;
+
+      document.getElementById('avgDuration').textContent = avgDuration.toFixed(1) + 's';
+      document.getElementById('totalTokens').textContent = formatNumber(totalTokens);
+      document.getElementById('successRate').textContent = successRate.toFixed(0) + '%';
+    }
+
+    function updateSettingsUI() {
+      // Quota
+      if (state.quota) {
+        updateQuotaDisplay('claude', state.quota.claude);
+        updateQuotaDisplay('glm', state.quota.glm);
+      }
+
+      // Approval mode
+      document.getElementById('approvalMode').textContent = state.approvalMode || 'step_by_step';
+    }
+
+    function updateQuotaDisplay(provider, quotaStatus) {
+      if (!quotaStatus) return;
+      const percent = (quotaStatus.usageRatio * 100).toFixed(0);
+      const status = quotaStatus.status || 'ok';
+
+      document.getElementById(\`\${provider}QuotaPercent\`).textContent = percent + '%';
+
+      const bar = document.getElementById(\`\${provider}QuotaBar\`);
+      bar.style.width = percent + '%';
+      bar.className = 'quota-fill ' + status;
+
+      document.getElementById(\`\${provider}QuotaCalls\`).textContent =
+        (quotaStatus.currentWindow?.usage?.callCount ?? 0) + ' calls';
+
+      const resetMs = quotaStatus.timeUntilResetMs ?? 0;
+      const resetMins = Math.ceil(resetMs / 60000);
+      document.getElementById(\`\${provider}QuotaReset\`).textContent =
+        resetMs > 0 ? \`Resets in: \${resetMins}m\` : 'Active';
+    }
+
+    function filterActivities(activities) {
+      return activities.filter(a => {
+        if (activityFilter !== 'all' && a.status !== activityFilter) return false;
+        if (activitySearchTerm && !JSON.stringify(a).toLowerCase().includes(activitySearchTerm.toLowerCase())) return false;
+        return true;
+      });
+    }
+
+    function filterActivity() {
+      activityFilter = document.getElementById('activityFilter').value;
+      activitySearchTerm = document.getElementById('activitySearch').value;
+      updateActivityUI();
+    }
+
+    function exportActivity() {
+      vscode.postMessage({ type: 'exportActivity', activities: state.activities || [] });
     }
 
     function renderMission(mission) {
@@ -560,75 +927,87 @@ export class MissionControlPanel {
       return \`
         <div class="task-item">
           <div class="task-status-icon \${task.status}"></div>
-          <span>\${escapeHtml(task.description)}</span>
+          <span>\${escapeHtml(task.description || task.title || task.id)}</span>
         </div>
       \`;
     }
 
-    function renderEmptyState() {
+    function renderActivity(activity) {
+      const time = activity.timestamp ? new Date(activity.timestamp).toLocaleTimeString() : '';
       return \`
-        <div class="empty-state">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
-          <div>No active missions</div>
-          <div style="font-size: 11px; margin-top: 4px;">Start a new mission to see it here</div>
+        <div class="activity-item">
+          <div class="activity-header">
+            <span class="activity-agent">\${escapeHtml(activity.agentId || 'Agent')}</span>
+            <span class="activity-time">\${time}</span>
+          </div>
+          <div class="activity-content">\${escapeHtml(activity.prompt || activity.message || '')}</div>
+          <div class="activity-metrics">
+            <span>Status: \${activity.status || 'unknown'}</span>
+            \${activity.durationMs ? \`<span>Duration: \${(activity.durationMs/1000).toFixed(1)}s</span>\` : ''}
+            \${activity.tokensUsed ? \`<span>Tokens: \${activity.tokensUsed}</span>\` : ''}
+          </div>
+        </div>
+      \`;
+    }
+
+    function renderEmptyState(title, subtitle) {
+      return \`
+        <div class="empty-state" style="padding: 20px;">
+          <div>\${escapeHtml(title)}</div>
+          \${subtitle ? \`<div style="font-size: 11px; margin-top: 4px;">\${escapeHtml(subtitle)}</div>\` : ''}
         </div>
       \`;
     }
 
     function updateMissionProgress({ missionId, progress }) {
-      const mission = state.activeMissions.find(m => m.id === missionId);
+      const mission = state.activeMissions?.find(m => m.id === missionId);
       if (mission) {
         mission.progress = progress;
-        updateUI();
+        updateMissionsUI();
       }
     }
 
     function updateTaskList(payload) {
       const task = payload.task || payload;
-      const existingIndex = state.tasks?.findIndex(t => t.id === task.id) ?? -1;
-
-      if (existingIndex >= 0) {
-        state.tasks[existingIndex] = task;
-      } else {
-        state.tasks = state.tasks || [];
-        state.tasks.unshift(task);
-      }
-
-      updateUI();
+      state.tasks = state.tasks || [];
+      const idx = state.tasks.findIndex(t => t.id === task.id);
+      if (idx >= 0) state.tasks[idx] = task;
+      else state.tasks.unshift(task);
+      updateMissionsUI();
     }
 
     function updateWarnings() {
       const section = document.getElementById('warningsSection');
       const list = document.getElementById('warningsList');
-
-      if (state.warnings.length > 0) {
+      if (state.warnings?.length > 0) {
         section.style.display = 'block';
         list.innerHTML = state.warnings.map(w => \`
-          <div class="warning-item">⚠️ \${escapeHtml(w)}</div>
+          <div class="warning-item">\${escapeHtml(w)}</div>
         \`).join('');
       } else {
         section.style.display = 'none';
       }
     }
 
-    function refresh() {
-      vscode.postMessage({ type: 'refresh' });
-    }
-
-    function cancelMission(missionId) {
-      vscode.postMessage({ type: 'cancelMission', missionId });
-    }
+    function refresh() { vscode.postMessage({ type: 'refresh' }); }
+    function cancelMission(id) { vscode.postMessage({ type: 'cancelMission', missionId: id }); }
+    function showApprovals() { vscode.postMessage({ type: 'approveTask' }); }
+    function changeApprovalMode() { vscode.postMessage({ type: 'setApprovalMode' }); }
 
     function escapeHtml(text) {
+      if (!text) return '';
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
     }
 
-    // Initial UI update
-    updateUI();
+    function formatNumber(num) {
+      if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+      if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+      return num.toString();
+    }
+
+    updateAllUI();
   </script>
 </body>
 </html>`;

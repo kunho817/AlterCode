@@ -25,7 +25,10 @@ let core: AlterCodeCore | undefined;
 let eventBus: IEventBus | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let approvalUI: ApprovalUI | undefined;
+let statusBarMain: vscode.StatusBarItem | undefined;
 let statusBarQuota: vscode.StatusBarItem | undefined;
+let statusBarApprovals: vscode.StatusBarItem | undefined;
+let statusBarConflicts: vscode.StatusBarItem | undefined;
 
 /**
  * Extension activation
@@ -69,11 +72,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Set up event handlers
     setupEventHandlers();
 
-    // Update status bar
+    // Update status bars
     updateStatusBar(context);
-
-    // Update quota status bar
     updateQuotaStatusBar(context);
+    setupApprovalsStatusBar(context);
+    setupConflictsStatusBar(context);
 
     outputChannel.appendLine('AlterCode extension activated successfully');
     vscode.window.showInformationMessage('AlterCode is ready!');
@@ -96,10 +99,22 @@ export async function deactivate(): Promise<void> {
     approvalUI = undefined;
   }
 
-  // Dispose quota status bar
+  // Dispose status bar items
+  if (statusBarMain) {
+    statusBarMain.dispose();
+    statusBarMain = undefined;
+  }
   if (statusBarQuota) {
     statusBarQuota.dispose();
     statusBarQuota = undefined;
+  }
+  if (statusBarApprovals) {
+    statusBarApprovals.dispose();
+    statusBarApprovals = undefined;
+  }
+  if (statusBarConflicts) {
+    statusBarConflicts.dispose();
+    statusBarConflicts = undefined;
   }
 
   if (core) {
@@ -287,6 +302,209 @@ function registerCommands(context: vscode.ExtensionContext): void {
       outputChannel?.show();
     })
   );
+
+  // Show pending approvals
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.showPendingApprovals', async () => {
+      if (!core) {
+        vscode.window.showErrorMessage('AlterCode is not initialized');
+        return;
+      }
+
+      try {
+        const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+        const pendingApprovals = approvalService.getPendingApprovals();
+
+        if (pendingApprovals.length === 0) {
+          vscode.window.showInformationMessage('No pending approvals');
+          return;
+        }
+
+        // Show quick pick for pending approvals
+        const items = pendingApprovals.map((approval) => ({
+          label: `$(file-diff) Task: ${approval.taskId}`,
+          description: `${approval.changes.length} change(s)`,
+          detail: `Requested: ${approval.requestedAt.toLocaleTimeString()}`,
+          approval,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: 'Pending Approvals',
+          placeHolder: 'Select an approval to review',
+        });
+
+        if (selected && approvalUI) {
+          await approvalUI.showApprovalPrompt(selected.approval);
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to show approvals: ${(error as Error).message}`);
+      }
+    })
+  );
+
+  // Set approval mode
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.setApprovalMode', async () => {
+      if (!core) {
+        vscode.window.showErrorMessage('AlterCode is not initialized');
+        return;
+      }
+
+      try {
+        const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+        const currentMode = approvalService.getApprovalMode();
+
+        const items = [
+          {
+            label: '$(check-all) Full Automation',
+            description: currentMode === 'full_automation' ? '(current)' : '',
+            mode: 'full_automation' as const,
+          },
+          {
+            label: '$(checklist) Step by Step',
+            description: currentMode === 'step_by_step' ? '(current)' : '',
+            mode: 'step_by_step' as const,
+          },
+          {
+            label: '$(shield) Fully Manual',
+            description: currentMode === 'fully_manual' ? '(current)' : '',
+            mode: 'fully_manual' as const,
+          },
+        ];
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: 'Set Approval Mode',
+          placeHolder: `Current mode: ${currentMode}`,
+        });
+
+        if (selected) {
+          approvalService.setApprovalMode(selected.mode);
+          vscode.window.showInformationMessage(`Approval mode set to: ${selected.mode}`);
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to set approval mode: ${(error as Error).message}`);
+      }
+    })
+  );
+
+  // Show conflicts
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.showConflicts', async () => {
+      if (!core) {
+        vscode.window.showErrorMessage('AlterCode is not initialized');
+        return;
+      }
+
+      try {
+        const mergeEngine = core.getService(SERVICE_TOKENS.MergeEngine);
+        const conflicts = mergeEngine.getActiveConflicts();
+
+        if (conflicts.length === 0) {
+          vscode.window.showInformationMessage('No active merge conflicts');
+          return;
+        }
+
+        // Show quick pick for conflicts
+        const items = conflicts.map((conflict) => ({
+          label: `$(git-merge) ${conflict.filePath}`,
+          description: `${conflict.conflictingRegions.length} conflicting region(s)`,
+          detail: `Agents: ${conflict.branch1.agentId} vs ${conflict.branch2.agentId}`,
+          conflict,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: 'Active Merge Conflicts',
+          placeHolder: 'Select a conflict to resolve',
+        });
+
+        if (selected) {
+          // Show resolution options
+          const resolutionItems = [
+            { label: '$(merge) Auto Resolve', description: 'Try automatic three-way merge', action: 'auto' as const },
+            { label: '$(code) View in Editor', description: 'Open file to manually resolve', action: 'manual' as const },
+          ];
+
+          const resolution = await vscode.window.showQuickPick(resolutionItems, {
+            title: `Resolve: ${selected.conflict.filePath}`,
+            placeHolder: 'Select resolution approach',
+          });
+
+          if (resolution) {
+            if (resolution.action === 'auto') {
+              // Try automatic resolution
+              const result = await mergeEngine.resolveConflict(selected.conflict);
+
+              if (result.ok) {
+                const strategy = result.value.strategy;
+                vscode.window.showInformationMessage(
+                  `Conflict resolved using ${strategy} strategy`
+                );
+
+                // Apply the resolution
+                await mergeEngine.applyResolution(result.value);
+                updateConflictsStatusBar();
+              } else {
+                vscode.window.showErrorMessage(`Failed to resolve: ${result.error.message}`);
+              }
+            } else {
+              // Open file for manual editing
+              const filePath = selected.conflict.filePath as string;
+              const uri = vscode.Uri.file(filePath);
+              await vscode.window.showTextDocument(uri);
+              vscode.window.showInformationMessage(
+                'Resolve the conflict markers in the file, then save.'
+              );
+            }
+          }
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to show conflicts: ${(error as Error).message}`);
+      }
+    })
+  );
+
+  // Approve all pending
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.approveAll', async () => {
+      if (!core) {
+        vscode.window.showErrorMessage('AlterCode is not initialized');
+        return;
+      }
+
+      try {
+        const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+        const pendingApprovals = approvalService.getPendingApprovals();
+
+        if (pendingApprovals.length === 0) {
+          vscode.window.showInformationMessage('No pending approvals');
+          return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+          `Approve all ${pendingApprovals.length} pending approval(s)?`,
+          { modal: true },
+          'Approve All'
+        );
+
+        if (confirm === 'Approve All') {
+          let approved = 0;
+          for (const approval of pendingApprovals) {
+            const result = await approvalService.respond(approval.id, {
+              approved: true,
+              action: 'approve',
+            });
+            if (result.ok) {
+              approved++;
+            }
+          }
+          vscode.window.showInformationMessage(`Approved ${approved} of ${pendingApprovals.length}`);
+          updateApprovalsStatusBar();
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to approve all: ${(error as Error).message}`);
+      }
+    })
+  );
 }
 
 /**
@@ -395,9 +613,14 @@ function setupEventHandlers(): void {
     const { provider, usageRatio } = event as unknown as { provider: string; usageRatio: number };
     const percentage = (usageRatio * 100).toFixed(0);
     outputChannel?.appendLine(`Quota warning: ${provider} at ${percentage}%`);
-    vscode.window.showWarningMessage(
-      `AlterCode: ${provider} API quota at ${percentage}%. Consider slowing down.`
-    );
+
+    // Check settings before showing notification
+    const vsConfig = vscode.workspace.getConfiguration('altercode');
+    if (vsConfig.get<boolean>('ui.notifyOnQuotaWarning', true)) {
+      vscode.window.showWarningMessage(
+        `AlterCode: ${provider} API quota at ${percentage}%. Consider slowing down.`
+      );
+    }
     updateQuotaStatusBarDisplay();
   });
 
@@ -405,6 +628,8 @@ function setupEventHandlers(): void {
     const { provider, timeUntilResetMs } = event as unknown as { provider: string; timeUntilResetMs: number };
     const minutesUntilReset = Math.ceil(timeUntilResetMs / 60000);
     outputChannel?.appendLine(`Quota exceeded: ${provider}. Resets in ${minutesUntilReset} minutes.`);
+
+    // Always show exceeded notification (critical)
     vscode.window.showErrorMessage(
       `AlterCode: ${provider} API quota exceeded. Resets in ~${minutesUntilReset} minutes.`
     );
@@ -422,6 +647,20 @@ function setupEventHandlers(): void {
   eventBus.on('approval:requested', async (event) => {
     const { approval } = event as unknown as { approval: { id: string; changes: unknown[] } };
     outputChannel?.appendLine(`Approval requested: ${approval.id} (${approval.changes.length} changes)`);
+
+    // Check settings before showing notification
+    const vsConfig = vscode.workspace.getConfiguration('altercode');
+    if (vsConfig.get<boolean>('ui.notifyOnApprovalRequired', true)) {
+      vscode.window.showInformationMessage(
+        `AlterCode: Approval required for ${approval.changes.length} change(s)`,
+        'Review'
+      ).then((selection) => {
+        if (selection === 'Review') {
+          vscode.commands.executeCommand('altercode.showPendingApprovals');
+        }
+      });
+    }
+    updateApprovalsStatusBar();
   });
 
   eventBus.on('approval:responded', async (event) => {
@@ -452,40 +691,161 @@ function setupEventHandlers(): void {
 }
 
 /**
- * Update status bar
+ * Update main status bar
  */
 function updateStatusBar(context: vscode.ExtensionContext): void {
-  const statusBarItem = vscode.window.createStatusBarItem(
+  statusBarMain = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     100
   );
 
-  statusBarItem.text = '$(hubot) AlterCode';
-  statusBarItem.tooltip = 'AlterCode AI Assistant';
-  statusBarItem.command = 'altercode.showMissionControl';
-  statusBarItem.show();
+  statusBarMain.text = '$(hubot) AlterCode';
+  statusBarMain.tooltip = 'AlterCode AI Assistant - Click to open Mission Control';
+  statusBarMain.command = 'altercode.showMissionControl';
+  statusBarMain.show();
 
-  context.subscriptions.push(statusBarItem);
+  context.subscriptions.push(statusBarMain);
 
   // Update status on events
   if (eventBus) {
     eventBus.on('mission:started', async () => {
-      statusBarItem.text = '$(sync~spin) AlterCode';
+      if (statusBarMain) {
+        statusBarMain.text = '$(sync~spin) AlterCode';
+      }
     });
 
     eventBus.on('mission:completed', async () => {
-      statusBarItem.text = '$(check) AlterCode';
-      setTimeout(() => {
-        statusBarItem.text = '$(hubot) AlterCode';
-      }, 3000);
+      if (statusBarMain) {
+        statusBarMain.text = '$(check) AlterCode';
+        setTimeout(() => {
+          if (statusBarMain) {
+            statusBarMain.text = '$(hubot) AlterCode';
+          }
+        }, 3000);
+      }
     });
 
     eventBus.on('mission:failed', async () => {
-      statusBarItem.text = '$(error) AlterCode';
-      setTimeout(() => {
-        statusBarItem.text = '$(hubot) AlterCode';
-      }, 3000);
+      if (statusBarMain) {
+        statusBarMain.text = '$(error) AlterCode';
+        setTimeout(() => {
+          if (statusBarMain) {
+            statusBarMain.text = '$(hubot) AlterCode';
+          }
+        }, 3000);
+      }
     });
+  }
+}
+
+/**
+ * Setup approvals status bar
+ */
+function setupApprovalsStatusBar(context: vscode.ExtensionContext): void {
+  statusBarApprovals = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    97 // Left of quota
+  );
+
+  statusBarApprovals.command = 'altercode.showPendingApprovals';
+  context.subscriptions.push(statusBarApprovals);
+
+  // Initial update
+  updateApprovalsStatusBar();
+
+  // Update on approval events
+  if (eventBus) {
+    eventBus.on('approval:requested', async () => {
+      updateApprovalsStatusBar();
+    });
+
+    eventBus.on('approval:responded', async () => {
+      updateApprovalsStatusBar();
+    });
+
+    eventBus.on('approval:timeout', async () => {
+      updateApprovalsStatusBar();
+    });
+  }
+}
+
+/**
+ * Update approvals status bar display
+ */
+function updateApprovalsStatusBar(): void {
+  if (!statusBarApprovals || !core) {
+    return;
+  }
+
+  try {
+    const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+    const pendingCount = approvalService.getPendingApprovals().length;
+
+    if (pendingCount > 0) {
+      statusBarApprovals.text = `$(bell) ${pendingCount}`;
+      statusBarApprovals.tooltip = `${pendingCount} pending approval(s) - Click to review`;
+      statusBarApprovals.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      statusBarApprovals.show();
+    } else {
+      statusBarApprovals.hide();
+    }
+  } catch {
+    // ApprovalService not available
+    statusBarApprovals.hide();
+  }
+}
+
+/**
+ * Setup conflicts status bar
+ */
+function setupConflictsStatusBar(context: vscode.ExtensionContext): void {
+  statusBarConflicts = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    96 // Left of approvals
+  );
+
+  statusBarConflicts.command = 'altercode.showConflicts';
+  context.subscriptions.push(statusBarConflicts);
+
+  // Initial state - hidden
+  statusBarConflicts.hide();
+
+  // Update on conflict events
+  if (eventBus) {
+    eventBus.on('conflict:detected', async () => {
+      updateConflictsStatusBar();
+    });
+
+    eventBus.on('conflict:resolved', async () => {
+      updateConflictsStatusBar();
+    });
+  }
+}
+
+/**
+ * Update conflicts status bar display
+ */
+function updateConflictsStatusBar(): void {
+  if (!statusBarConflicts || !core) {
+    return;
+  }
+
+  try {
+    const mergeEngine = core.getService(SERVICE_TOKENS.MergeEngine);
+    const conflicts = mergeEngine.getActiveConflicts();
+    const conflictCount = conflicts.length;
+
+    if (conflictCount > 0) {
+      statusBarConflicts.text = `$(git-merge) ${conflictCount}`;
+      statusBarConflicts.tooltip = `${conflictCount} merge conflict(s) - Click to resolve`;
+      statusBarConflicts.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+      statusBarConflicts.show();
+    } else {
+      statusBarConflicts.hide();
+    }
+  } catch {
+    // MergeEngine not available
+    statusBarConflicts.hide();
   }
 }
 
@@ -519,6 +879,13 @@ function updateQuotaStatusBar(context: vscode.ExtensionContext): void {
  */
 function updateQuotaStatusBarDisplay(): void {
   if (!statusBarQuota || !core) {
+    return;
+  }
+
+  // Check if quota should be shown in status bar
+  const vsConfig = vscode.workspace.getConfiguration('altercode');
+  if (!vsConfig.get<boolean>('ui.showQuotaInStatusBar', true)) {
+    statusBarQuota.hide();
     return;
   }
 
