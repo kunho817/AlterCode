@@ -1,0 +1,199 @@
+{
+  "name": "altercode",
+  "displayName": "AlterCode",
+  "description": "Reliability-first AI coding assistant with verification and mission control",
+  "version": "2.0.0",
+  "publisher": "altercode",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "assistant",
+    "code generation",
+    "refactoring",
+    "claude",
+    "gpt",
+    "verification"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "altercode.showMissionControl",
+        "title": "Show Mission Control",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.newMission",
+        "title": "New Mission",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.explainFile",
+        "title": "Explain This File",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.findIssues",
+        "title": "Find Issues",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.refactorSelection",
+        "title": "Refactor Selection",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.cancelExecution",
+        "title": "Cancel Execution",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.openSettings",
+        "title": "Open Settings",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.showOutput",
+        "title": "Show Output",
+        "category": "AlterCode"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "altercode",
+          "title": "AlterCode",
+          "icon": "$(hubot)"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "altercode.chatView",
+          "name": "AlterCode Chat"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "altercode.explainFile",
+          "group": "altercode@1"
+        },
+        {
+          "command": "altercode.findIssues",
+          "group": "altercode@2"
+        },
+        {
+          "command": "altercode.refactorSelection",
+          "group": "altercode@3",
+          "when": "editorHasSelection"
+        }
+      ],
+      "commandPalette": [
+        { "command": "altercode.showMissionControl" },
+        { "command": "altercode.newMission" },
+        { "command": "altercode.explainFile", "when": "editorIsOpen" },
+        { "command": "altercode.findIssues", "when": "editorIsOpen" },
+        { "command": "altercode.refactorSelection", "when": "editorHasSelection" },
+        { "command": "altercode.cancelExecution" },
+        { "command": "altercode.openSettings" },
+        { "command": "altercode.showOutput" }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "altercode.showMissionControl",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "altercode.newMission",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      }
+    ],
+    "configuration": {
+      "title": "AlterCode",
+      "properties": {
+        "altercode.llm.provider": {
+          "type": "string",
+          "enum": ["claude", "openai"],
+          "default": "claude",
+          "description": "LLM provider to use"
+        },
+        "altercode.llm.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the LLM provider"
+        },
+        "altercode.llm.model": {
+          "type": "string",
+          "default": "",
+          "description": "Specific model to use (leave empty for default)"
+        },
+        "altercode.maxContextTokens": {
+          "type": "number",
+          "default": 128000,
+          "description": "Maximum context window size in tokens"
+        },
+        "altercode.logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "Logging level"
+        },
+        "altercode.verification.strictness": {
+          "type": "string",
+          "enum": ["strict", "standard", "lenient"],
+          "default": "standard",
+          "description": "Verification strictness level"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "lint": "eslint src --ext ts",
+    "lint:fix": "eslint src --ext ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "typecheck": "tsc --noEmit",
+    "typecheck:dev": "tsc --project tsconfig.dev.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.5",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "esbuild": "^0.19.10",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.1",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "level": "^8.0.0",
+    "sql.js": "^1.9.0",
+    "uuid": "^9.0.1"
+  }
+}

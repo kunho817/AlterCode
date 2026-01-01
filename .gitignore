@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.vsix
+
+# Test coverage
+coverage/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Environment
+.env
+.env.local
+
+# Cache
+.cache/
+*.tsbuildinfo
+
+# AlterCode data
+.altercode/
+*.db
+*.db-journal

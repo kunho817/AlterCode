@@ -1,0 +1,27 @@
+# Source files (we bundle everything)
+src/**
+test/**
+docs/**
+
+# Development files
+.vscode/**
+.git/**
+.gitignore
+*.ts
+!*.d.ts
+tsconfig*.json
+jest.config.js
+.eslintrc*
+.prettierrc*
+
+# Node modules (bundled)
+node_modules/**
+
+# Build artifacts
+*.vsix
+
+# Misc
+*.md
+!README.md
+.DS_Store
+Thumbs.db
