@@ -262,6 +262,65 @@ Add to Settings section in MissionControlPanel:
 
 ---
 
+## Category 5: UI-to-Backend Event Handler Mismatches (FIXED)
+
+### 5.1 Event Name Mismatches
+
+The UI (MissionControlPanel) was emitting events with different names than the handlers expected:
+
+| UI Emits | Handler Expected | Status |
+|----------|------------------|--------|
+| `ui:approveChange` | `ui:approveApproval` | ✅ Fixed - both names now handled |
+| `ui:rejectChange` | `ui:rejectApproval` | ✅ Fixed - both names now handled |
+| `ui:viewDiff` | `ui:viewApprovalDiff` | ✅ Fixed - both names now handled |
+| `ui:getPerformance` | `ui:refreshPerformance` | ✅ Fixed - both names now handled |
+
+**Solution**: Registered both event names to the same handler function for compatibility.
+
+### 5.2 Missing Agent Control Handlers
+
+UI had buttons for agent pause/resume but no handlers existed:
+
+| Event | Status |
+|-------|--------|
+| `ui:pauseAgent` | ✅ Added (with info message - agents run to completion) |
+| `ui:resumeAgent` | ✅ Added |
+| `ui:pauseAllAgents` | ✅ Added |
+| `ui:resumeAllAgents` | ✅ Added |
+
+### 5.3 Missing Generic Handlers
+
+| Event | Status |
+|-------|--------|
+| `ui:viewDetails` | ✅ Added - opens Mission Control for mission/task/agent details |
+
+### 5.4 Backend Events Not Updating UI
+
+Backend events weren't triggering UI panel refreshes:
+
+| Event | Status |
+|-------|--------|
+| `mission:created` | ✅ Now calls refreshPanel() |
+| `mission:completed` | ✅ Now calls refreshPanel() |
+| `mission:failed` | ✅ Now calls refreshPanel() |
+| `mission:phaseChanged` | ✅ Now calls refreshPanel() |
+| `mission:progressUpdated` | ✅ Now calls refreshPanel() |
+| `task:created` | ✅ Now calls refreshPanel() |
+| `task:completed` | ✅ Now calls refreshPanel() |
+| `activity:started` | ✅ Now calls refreshPanel() |
+| `activity:completed` | ✅ Now calls refreshPanel() |
+| `activity:failed` | ✅ Now calls refreshPanel() |
+| `quota:warning` | ✅ Now updates status bar display |
+| `quota:exceeded` | ✅ Now updates status bar display |
+| `quota:reset` | ✅ Now updates status bar display |
+| `approval:requested` | ✅ Now shows notification + updates status bar |
+| `approval:responded` | ✅ Now logs to output channel |
+| `approval:timeout` | ✅ Now shows warning notification |
+| `conflict:detected` | ✅ Now logs to output channel |
+| `conflict:resolved` | ✅ Now logs to output channel |
+
+---
+
 ## Verification Status
 
 ### Service Methods - VERIFIED OK
@@ -271,6 +330,30 @@ Add to Settings section in MissionControlPanel:
 | `MissionManager.pause()` | line 301 | Exists |
 | `MissionManager.resume()` | line 315 | Exists |
 | `TaskManager.retry()` | line 425 | Exists |
+
+---
+
+## Summary of All Fixes
+
+### Configuration Fixes
+1. ✅ `loadConfiguration()` now reads dual-provider settings
+2. ✅ Claude mode (API/CLI) setting added
+3. ✅ Claude CLI path setting added
+4. ✅ Claude timeout setting added
+5. ✅ Fallback toggle setting added
+6. ✅ Verification strictness properly wired
+7. ✅ GLM endpoint properly wired
+
+### UI Fixes
+1. ✅ All settings exposed in Mission Control Settings tab
+2. ✅ Conditional display for Claude mode (API key vs CLI path)
+3. ✅ API keys use password-type inputs
+
+### Event Handler Fixes
+1. ✅ Event name aliases for backward compatibility
+2. ✅ Missing agent control handlers added
+3. ✅ Backend events trigger UI refresh
+4. ✅ Quota/approval/conflict status bar updates
 
 ---
 

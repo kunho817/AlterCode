@@ -957,22 +957,63 @@ function setupEventHandlers(): void {
   eventBus.on('ui:rejectApproval', handleRejectApproval);
   eventBus.on('ui:rejectChange', handleRejectApproval);
 
-  // Log core events
+  // Helper to refresh panel
+  const refreshPanel = () => {
+    if (core) {
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    }
+  };
+
+  // Log core events and update panel
   eventBus.on('mission:created', async (event) => {
     const { mission } = event as unknown as { mission: { title: string } };
     outputChannel?.appendLine(`Mission created: ${mission.title}`);
+    refreshPanel();
   });
 
   eventBus.on('mission:completed', async (event) => {
     const { mission } = event as unknown as { mission: { title: string } };
     outputChannel?.appendLine(`Mission completed: ${mission.title}`);
     vscode.window.showInformationMessage(`Mission completed: ${mission.title}`);
+    refreshPanel();
   });
 
   eventBus.on('mission:failed', async (event) => {
     const { mission, error } = event as unknown as { mission: { title: string }; error: string };
     outputChannel?.appendLine(`Mission failed: ${mission.title} - ${error}`);
     vscode.window.showErrorMessage(`Mission failed: ${error}`);
+    refreshPanel();
+  });
+
+  eventBus.on('mission:phaseChanged', async () => {
+    refreshPanel();
+  });
+
+  eventBus.on('mission:progressUpdated', async () => {
+    refreshPanel();
+  });
+
+  eventBus.on('task:created', async () => {
+    refreshPanel();
+  });
+
+  eventBus.on('task:completed', async () => {
+    refreshPanel();
+  });
+
+  eventBus.on('activity:started', async () => {
+    refreshPanel();
+  });
+
+  eventBus.on('activity:completed', async () => {
+    refreshPanel();
+  });
+
+  eventBus.on('activity:failed', async () => {
+    refreshPanel();
   });
 
   eventBus.on('execution:warnings', async (event) => {
