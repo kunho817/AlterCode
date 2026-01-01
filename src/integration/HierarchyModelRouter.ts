@@ -5,8 +5,12 @@
  * - Sovereign, Lord, Overlord → Claude Opus (strategic/tactical decisions)
  * - Worker → GLM-4 (code implementation tasks)
  *
- * This implements the original design where:
- * - Non-Worker layers use Opus for complex reasoning
+ * Supports two Claude modes:
+ * - API mode: Direct Anthropic API with API key
+ * - CLI mode: Claude Code CLI tool
+ *
+ * Original design implementation:
+ * - Non-Worker layers always use Opus for complex reasoning
  * - Worker layer uses GLM-4 for cost-effective code generation
  */
 
@@ -24,63 +28,49 @@ import {
   ILogger,
   AppError,
   HierarchyLevel,
-  AIModel,
 } from '../types';
 import { ClaudeAdapter } from './ClaudeAdapter';
+import { ClaudeCodeAdapter } from './ClaudeCodeAdapter';
 import { GLMAdapter } from './GLMAdapter';
+
+/** Claude access mode */
+export type ClaudeMode = 'api' | 'cli';
 
 /**
  * Configuration for hierarchy-based model routing
  */
 export interface HierarchyModelConfig {
-  /** Claude API key for Opus/Sonnet models */
-  claudeApiKey: string;
-  /** GLM API key for GLM-4 models */
+  /** How to access Claude: 'api' for direct API, 'cli' for Claude Code */
+  claudeMode: ClaudeMode;
+  /** Claude API key (required if claudeMode is 'api') */
+  claudeApiKey?: string;
+  /** Claude Code CLI path (optional, default: 'claude') */
+  claudeCliPath?: string;
+  /** GLM API key for Worker level */
   glmApiKey: string;
-  /** Model to use for Sovereign level (default: claude-opus) */
-  sovereignModel?: AIModel;
-  /** Model to use for Lord level (default: claude-opus) */
-  lordModel?: AIModel;
-  /** Model to use for Overlord level (default: claude-sonnet) */
-  overlordModel?: AIModel;
-  /** Model to use for Worker level (default: glm-4) */
-  workerModel?: AIModel;
-  /** Fallback model if primary fails */
-  fallbackModel?: AIModel;
-  /** Enable fallback on error */
+  /** Enable fallback to GLM if Claude fails */
   enableFallback?: boolean;
+  /** Working directory for Claude Code CLI */
+  workingDirectory?: string;
 }
-
-/**
- * Model mapping for each hierarchy level
- */
-const DEFAULT_HIERARCHY_MODELS: Record<HierarchyLevel, AIModel> = {
-  sovereign: 'claude-opus',
-  lord: 'claude-opus',
-  overlord: 'claude-sonnet',
-  worker: 'glm-4',
-};
-
-/**
- * Claude model name mapping
- */
-const CLAUDE_MODEL_NAMES: Record<string, string> = {
-  'claude-opus': 'claude-opus-4-20250514',
-  'claude-sonnet': 'claude-sonnet-4-20250514',
-  'claude-haiku': 'claude-haiku-3-20250307',
-};
 
 /**
  * Hierarchy Model Router
  *
  * Automatically routes requests to the appropriate AI model based on
  * the hierarchy level of the requesting agent.
+ *
+ * Hierarchy → Model mapping:
+ * - Sovereign → Claude Opus
+ * - Lord → Claude Opus
+ * - Overlord → Claude Opus
+ * - Worker → GLM-4
  */
 export class HierarchyModelRouter implements ILLMAdapter {
-  private readonly config: Required<HierarchyModelConfig>;
+  private readonly config: HierarchyModelConfig;
   private readonly logger?: ILogger;
-  private readonly adapters: Map<AIModel, ILLMAdapter> = new Map();
-  private readonly hierarchyModels: Record<HierarchyLevel, AIModel>;
+  private readonly claudeAdapter: ILLMAdapter;
+  private readonly glmAdapter: ILLMAdapter;
 
   // Current context
   private currentLevel: HierarchyLevel = 'worker';
@@ -95,57 +85,38 @@ export class HierarchyModelRouter implements ILLMAdapter {
   private fallbackCount: number = 0;
 
   constructor(config: HierarchyModelConfig, logger?: ILogger) {
-    this.config = {
-      ...config,
-      sovereignModel: config.sovereignModel ?? DEFAULT_HIERARCHY_MODELS.sovereign,
-      lordModel: config.lordModel ?? DEFAULT_HIERARCHY_MODELS.lord,
-      overlordModel: config.overlordModel ?? DEFAULT_HIERARCHY_MODELS.overlord,
-      workerModel: config.workerModel ?? DEFAULT_HIERARCHY_MODELS.worker,
-      fallbackModel: config.fallbackModel ?? 'claude-sonnet',
-      enableFallback: config.enableFallback ?? true,
-    };
-
-    this.hierarchyModels = {
-      sovereign: this.config.sovereignModel,
-      lord: this.config.lordModel,
-      overlord: this.config.overlordModel,
-      worker: this.config.workerModel,
-    };
-
+    this.config = config;
     this.logger = logger?.child('HierarchyModelRouter');
-    this.initializeAdapters();
-  }
 
-  /**
-   * Initialize adapters for each unique model
-   */
-  private initializeAdapters(): void {
-    const uniqueModels = new Set<AIModel>([
-      this.config.sovereignModel,
-      this.config.lordModel,
-      this.config.overlordModel,
-      this.config.workerModel,
-      this.config.fallbackModel,
-    ]);
-
-    for (const model of uniqueModels) {
-      if (this.adapters.has(model)) continue;
-
-      if (model.startsWith('claude-')) {
-        const claudeModel = CLAUDE_MODEL_NAMES[model] ?? model;
-        this.adapters.set(
-          model,
-          new ClaudeAdapter(this.config.claudeApiKey, { model: claudeModel }, this.logger)
-        );
-        this.logger?.debug('Initialized Claude adapter', { model: claudeModel });
-      } else if (model.startsWith('glm-')) {
-        this.adapters.set(
-          model,
-          new GLMAdapter(this.config.glmApiKey, { model }, this.logger)
-        );
-        this.logger?.debug('Initialized GLM adapter', { model });
+    // Initialize Claude adapter based on mode
+    if (config.claudeMode === 'cli') {
+      this.claudeAdapter = new ClaudeCodeAdapter(
+        {
+          cliPath: config.claudeCliPath,
+          workingDirectory: config.workingDirectory,
+        },
+        this.logger
+      );
+      this.logger?.info('Using Claude Code CLI for Opus');
+    } else {
+      if (!config.claudeApiKey) {
+        throw new AppError('CONFIG', 'Claude API key required when claudeMode is "api"');
       }
+      this.claudeAdapter = new ClaudeAdapter(
+        config.claudeApiKey,
+        { model: 'claude-opus-4-20250514' }, // Always Opus
+        this.logger
+      );
+      this.logger?.info('Using Claude API for Opus');
     }
+
+    // Initialize GLM adapter for Worker level
+    this.glmAdapter = new GLMAdapter(
+      config.glmApiKey,
+      { model: 'glm-4' },
+      this.logger
+    );
+    this.logger?.info('Using GLM-4 for Worker level');
   }
 
   /**
@@ -164,43 +135,33 @@ export class HierarchyModelRouter implements ILLMAdapter {
   }
 
   /**
-   * Get the model for a specific hierarchy level
-   */
-  getModelForLevel(level: HierarchyLevel): AIModel {
-    return this.hierarchyModels[level];
-  }
-
-  /**
-   * Get the adapter for current hierarchy level
+   * Get the appropriate adapter for current hierarchy level
    */
   private getAdapter(): ILLMAdapter {
-    const model = this.hierarchyModels[this.currentLevel];
-    const adapter = this.adapters.get(model);
-
-    if (!adapter) {
-      throw new AppError('LLM', `No adapter available for model: ${model}`);
+    // Worker uses GLM-4, all others use Claude Opus
+    if (this.currentLevel === 'worker') {
+      return this.glmAdapter;
     }
-
-    return adapter;
+    return this.claudeAdapter;
   }
 
   /**
-   * Get fallback adapter
+   * Get model name for current level
    */
-  private getFallbackAdapter(): ILLMAdapter | null {
-    if (!this.config.enableFallback) return null;
-
-    const adapter = this.adapters.get(this.config.fallbackModel);
-    return adapter ?? null;
+  private getModelName(): string {
+    if (this.currentLevel === 'worker') {
+      return 'glm-4';
+    }
+    return 'claude-opus';
   }
 
   async complete(request: LLMRequest): AsyncResult<LLMResponse> {
     this.requestsByLevel[this.currentLevel]++;
 
-    const model = this.hierarchyModels[this.currentLevel];
+    const modelName = this.getModelName();
     this.logger?.info('Routing completion request', {
       level: this.currentLevel,
-      model,
+      model: modelName,
       promptLength: request.prompt.length,
     });
 
@@ -212,24 +173,28 @@ export class HierarchyModelRouter implements ILLMAdapter {
         return result;
       }
 
-      // Try fallback if enabled
-      if (this.config.enableFallback) {
-        this.logger?.warn('Primary model failed, trying fallback', {
-          primaryModel: model,
-          fallbackModel: this.config.fallbackModel,
+      // Try fallback if enabled and not already using GLM
+      if (this.config.enableFallback && this.currentLevel !== 'worker') {
+        this.logger?.warn('Claude failed, falling back to GLM', {
+          level: this.currentLevel,
           error: result.error,
         });
 
-        const fallbackAdapter = this.getFallbackAdapter();
-        if (fallbackAdapter) {
-          this.fallbackCount++;
-          return await fallbackAdapter.complete(request);
-        }
+        this.fallbackCount++;
+        return await this.glmAdapter.complete(request);
       }
 
       return result;
     } catch (error) {
       this.logger?.error('Completion routing failed', error as Error);
+
+      // Try fallback on exception
+      if (this.config.enableFallback && this.currentLevel !== 'worker') {
+        this.logger?.warn('Claude threw exception, falling back to GLM');
+        this.fallbackCount++;
+        return await this.glmAdapter.complete(request);
+      }
+
       return Err(new AppError('LLM', `Routing failed: ${(error as Error).message}`));
     }
   }
@@ -237,10 +202,10 @@ export class HierarchyModelRouter implements ILLMAdapter {
   async *stream(request: LLMRequest): AsyncGenerator<LLMStreamChunk> {
     this.requestsByLevel[this.currentLevel]++;
 
-    const model = this.hierarchyModels[this.currentLevel];
+    const modelName = this.getModelName();
     this.logger?.info('Routing stream request', {
       level: this.currentLevel,
-      model,
+      model: modelName,
     });
 
     const adapter = this.getAdapter();
@@ -253,10 +218,10 @@ export class HierarchyModelRouter implements ILLMAdapter {
   ): AsyncResult<{ response: LLMResponse; toolCalls: ToolCall[] }> {
     this.requestsByLevel[this.currentLevel]++;
 
-    const model = this.hierarchyModels[this.currentLevel];
+    const modelName = this.getModelName();
     this.logger?.info('Routing tool completion request', {
       level: this.currentLevel,
-      model,
+      model: modelName,
       toolCount: tools.length,
     });
 
@@ -268,23 +233,26 @@ export class HierarchyModelRouter implements ILLMAdapter {
         return result;
       }
 
-      // Try fallback if enabled
-      if (this.config.enableFallback) {
-        this.logger?.warn('Primary model failed for tools, trying fallback', {
-          primaryModel: model,
-          fallbackModel: this.config.fallbackModel,
+      // Try fallback if enabled and not already using GLM
+      if (this.config.enableFallback && this.currentLevel !== 'worker') {
+        this.logger?.warn('Claude tool completion failed, falling back to GLM', {
+          level: this.currentLevel,
         });
 
-        const fallbackAdapter = this.getFallbackAdapter();
-        if (fallbackAdapter) {
-          this.fallbackCount++;
-          return await fallbackAdapter.completeWithTools(request, tools);
-        }
+        this.fallbackCount++;
+        return await this.glmAdapter.completeWithTools(request, tools);
       }
 
       return result;
     } catch (error) {
       this.logger?.error('Tool completion routing failed', error as Error);
+
+      if (this.config.enableFallback && this.currentLevel !== 'worker') {
+        this.logger?.warn('Claude threw exception, falling back to GLM');
+        this.fallbackCount++;
+        return await this.glmAdapter.completeWithTools(request, tools);
+      }
+
       return Err(new AppError('LLM', `Tool routing failed: ${(error as Error).message}`));
     }
   }
@@ -295,10 +263,8 @@ export class HierarchyModelRouter implements ILLMAdapter {
   }
 
   setConfig(config: Partial<LLMConfig>): void {
-    // Apply config to all adapters
-    for (const adapter of this.adapters.values()) {
-      adapter.setConfig(config);
-    }
+    this.claudeAdapter.setConfig(config);
+    this.glmAdapter.setConfig(config);
   }
 
   /**
@@ -308,70 +274,52 @@ export class HierarchyModelRouter implements ILLMAdapter {
     requestsByLevel: Record<HierarchyLevel, number>;
     fallbackCount: number;
     currentLevel: HierarchyLevel;
-    currentModel: AIModel;
+    currentModel: string;
+    claudeMode: ClaudeMode;
   } {
     return {
       requestsByLevel: { ...this.requestsByLevel },
       fallbackCount: this.fallbackCount,
       currentLevel: this.currentLevel,
-      currentModel: this.hierarchyModels[this.currentLevel],
+      currentModel: this.getModelName(),
+      claudeMode: this.config.claudeMode,
     };
   }
 
   /**
-   * Update model for a specific hierarchy level
+   * Get Claude mode (api or cli)
    */
-  updateLevelModel(level: HierarchyLevel, model: AIModel): void {
-    this.hierarchyModels[level] = model;
-
-    // Ensure adapter exists for new model
-    if (!this.adapters.has(model)) {
-      if (model.startsWith('claude-')) {
-        const claudeModel = CLAUDE_MODEL_NAMES[model] ?? model;
-        this.adapters.set(
-          model,
-          new ClaudeAdapter(this.config.claudeApiKey, { model: claudeModel }, this.logger)
-        );
-      } else if (model.startsWith('glm-')) {
-        this.adapters.set(
-          model,
-          new GLMAdapter(this.config.glmApiKey, { model }, this.logger)
-        );
-      }
-    }
-
-    this.logger?.info('Level model updated', { level, model });
+  getClaudeMode(): ClaudeMode {
+    return this.config.claudeMode;
   }
 
   /**
-   * Check if a specific model is available
+   * Check if Claude Code CLI is available (only relevant in CLI mode)
    */
-  async isModelAvailable(model: AIModel): Promise<boolean> {
-    const adapter = this.adapters.get(model);
-    if (!adapter) return false;
-
-    try {
-      // Try a minimal request to check availability
-      const result = await adapter.complete({
-        prompt: 'Hello',
-        maxTokens: 5,
-      });
-      return result.ok;
-    } catch {
+  async isClaudeCliAvailable(): Promise<boolean> {
+    if (this.config.claudeMode !== 'cli') {
       return false;
     }
+    return (this.claudeAdapter as ClaudeCodeAdapter).isAvailable();
   }
 
   /**
-   * Get all configured adapters
+   * Get Claude adapter directly
    */
-  getAdapters(): Map<AIModel, ILLMAdapter> {
-    return new Map(this.adapters);
+  getClaudeAdapter(): ILLMAdapter {
+    return this.claudeAdapter;
+  }
+
+  /**
+   * Get GLM adapter directly
+   */
+  getGLMAdapter(): ILLMAdapter {
+    return this.glmAdapter;
   }
 }
 
 /**
- * Create a hierarchy model router
+ * Create a hierarchy model router with API mode
  */
 export function createHierarchyModelRouter(
   config: HierarchyModelConfig,
@@ -381,23 +329,40 @@ export function createHierarchyModelRouter(
 }
 
 /**
- * Create a router with default configuration
+ * Create a hierarchy model router with Claude API
  */
-export function createDefaultHierarchyRouter(
+export function createApiModeRouter(
   claudeApiKey: string,
   glmApiKey: string,
   logger?: ILogger
 ): HierarchyModelRouter {
   return new HierarchyModelRouter(
     {
+      claudeMode: 'api',
       claudeApiKey,
       glmApiKey,
-      sovereignModel: 'claude-opus',
-      lordModel: 'claude-opus',
-      overlordModel: 'claude-sonnet',
-      workerModel: 'glm-4',
-      fallbackModel: 'claude-sonnet',
       enableFallback: true,
+    },
+    logger
+  );
+}
+
+/**
+ * Create a hierarchy model router with Claude Code CLI
+ */
+export function createCliModeRouter(
+  glmApiKey: string,
+  claudeCliPath?: string,
+  workingDirectory?: string,
+  logger?: ILogger
+): HierarchyModelRouter {
+  return new HierarchyModelRouter(
+    {
+      claudeMode: 'cli',
+      claudeCliPath,
+      glmApiKey,
+      enableFallback: true,
+      workingDirectory,
     },
     logger
   );

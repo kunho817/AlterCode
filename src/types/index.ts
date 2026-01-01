@@ -139,6 +139,8 @@ export {
   // Configuration
   type ClaudeConfig,
   type GLMConfig,
+  type ClaudeAccessMode,
+  type SimpleLLMConfig,
   type VerificationConfig,
   type ProtocolConfig,
   type StorageConfig,

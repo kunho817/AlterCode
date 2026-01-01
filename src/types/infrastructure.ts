@@ -363,11 +363,16 @@ export interface UIConfig {
   readonly confirmBeforeApply: boolean;
 }
 
+/** Claude access mode */
+export type ClaudeAccessMode = 'api' | 'cli';
+
 /** Simple LLM configuration for extension use */
 export interface SimpleLLMConfig {
   readonly provider?: 'claude' | 'openai' | 'glm';
   readonly apiKey?: string;
   readonly model?: string;
+  /** Claude access mode: 'api' for direct API, 'cli' for Claude Code CLI */
+  readonly claudeMode?: ClaudeAccessMode;
 }
 
 /** Main AlterCode configuration */

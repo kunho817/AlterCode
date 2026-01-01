@@ -305,37 +305,40 @@ export function registerServices(
 
   // ===== Integration Layer =====
 
-  // Hierarchy Model Router (if both Claude and GLM keys are available)
+  // Hierarchy Model Router
+  // Routes requests based on hierarchy level:
+  // - Sovereign/Lord/Overlord → Claude Opus (via API or CLI)
+  // - Worker → GLM-4
   container.registerFactory(SERVICE_TOKENS.HierarchyModelRouter, () => {
-    // Claude API key from llm config (when provider is 'claude' or unspecified)
+    const claudeMode = config.llm?.claudeMode ?? 'api';
     const claudeApiKey = config.llm?.apiKey ?? '';
-    // GLM API key from glm config
     const glmApiKey = config.glm?.apiKey ?? '';
 
     return createHierarchyModelRouter(
       {
-        claudeApiKey,
+        claudeMode,
+        claudeApiKey: claudeMode === 'api' ? claudeApiKey : undefined,
+        claudeCliPath: config.claude?.cliPath,
         glmApiKey,
-        sovereignModel: 'claude-opus',
-        lordModel: 'claude-opus',
-        overlordModel: 'claude-sonnet',
-        workerModel: glmApiKey ? 'glm-4' : 'claude-sonnet', // Fallback if no GLM key
-        fallbackModel: 'claude-sonnet',
         enableFallback: true,
+        workingDirectory: typeof config.projectRoot === 'string'
+          ? config.projectRoot
+          : undefined,
       },
       container.resolve(SERVICE_TOKENS.Logger)
     );
   });
 
-  // LLM Adapter - uses HierarchyModelRouter if available, otherwise direct adapter
+  // LLM Adapter - uses HierarchyModelRouter for hierarchy-based routing
   container.registerFactory(SERVICE_TOKENS.LLMAdapter, () => {
-    // Claude API key from llm config
     const claudeApiKey = config.llm?.apiKey ?? '';
-    // GLM API key from glm config
     const glmApiKey = config.glm?.apiKey ?? '';
+    const claudeMode = config.llm?.claudeMode ?? 'api';
 
-    // If both keys available, use hierarchy router for automatic model selection
-    if (claudeApiKey && glmApiKey) {
+    // Use hierarchy router if:
+    // - Claude CLI mode (always has Claude via CLI)
+    // - OR both Claude API key and GLM key available
+    if (claudeMode === 'cli' || (claudeApiKey && glmApiKey)) {
       return container.resolve(SERVICE_TOKENS.HierarchyModelRouter);
     }
 
@@ -365,10 +368,10 @@ export function registerServices(
       );
     }
 
-    // Default to Claude
+    // Default to Claude API
     return createClaudeAdapter(
       claudeApiKey,
-      { model: config.llm?.model },
+      { model: 'claude-opus-4-20250514' }, // Always Opus
       container.resolve(SERVICE_TOKENS.Logger)
     );
   });
