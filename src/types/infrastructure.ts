@@ -365,7 +365,7 @@ export interface UIConfig {
 
 /** Simple LLM configuration for extension use */
 export interface SimpleLLMConfig {
-  readonly provider?: 'claude' | 'openai';
+  readonly provider?: 'claude' | 'openai' | 'glm';
   readonly apiKey?: string;
   readonly model?: string;
 }

@@ -4,6 +4,10 @@
   "description": "Reliability-first AI coding assistant with verification and mission control",
   "version": "2.0.0",
   "publisher": "altercode",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kunho817/AlterCode.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },

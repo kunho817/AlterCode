@@ -73,7 +73,12 @@ import {
 } from '../execution';
 
 // Integration
-import { createClaudeAdapter, createOpenAIAdapter } from '../integration';
+import {
+  createClaudeAdapter,
+  createOpenAIAdapter,
+  createGLMAdapter,
+  createHierarchyModelRouter,
+} from '../integration';
 
 /**
  * Register all services in the container
@@ -300,8 +305,41 @@ export function registerServices(
 
   // ===== Integration Layer =====
 
-  // LLM Adapter
+  // Hierarchy Model Router (if both Claude and GLM keys are available)
+  container.registerFactory(SERVICE_TOKENS.HierarchyModelRouter, () => {
+    // Claude API key from llm config (when provider is 'claude' or unspecified)
+    const claudeApiKey = config.llm?.apiKey ?? '';
+    // GLM API key from glm config
+    const glmApiKey = config.glm?.apiKey ?? '';
+
+    return createHierarchyModelRouter(
+      {
+        claudeApiKey,
+        glmApiKey,
+        sovereignModel: 'claude-opus',
+        lordModel: 'claude-opus',
+        overlordModel: 'claude-sonnet',
+        workerModel: glmApiKey ? 'glm-4' : 'claude-sonnet', // Fallback if no GLM key
+        fallbackModel: 'claude-sonnet',
+        enableFallback: true,
+      },
+      container.resolve(SERVICE_TOKENS.Logger)
+    );
+  });
+
+  // LLM Adapter - uses HierarchyModelRouter if available, otherwise direct adapter
   container.registerFactory(SERVICE_TOKENS.LLMAdapter, () => {
+    // Claude API key from llm config
+    const claudeApiKey = config.llm?.apiKey ?? '';
+    // GLM API key from glm config
+    const glmApiKey = config.glm?.apiKey ?? '';
+
+    // If both keys available, use hierarchy router for automatic model selection
+    if (claudeApiKey && glmApiKey) {
+      return container.resolve(SERVICE_TOKENS.HierarchyModelRouter);
+    }
+
+    // Single provider mode
     if (config.llm?.provider === 'openai') {
       return createOpenAIAdapter(
         config.llm.apiKey ?? '',
@@ -309,9 +347,27 @@ export function registerServices(
         container.resolve(SERVICE_TOKENS.Logger)
       );
     }
+
+    if (config.llm?.provider === 'glm') {
+      return createGLMAdapter(
+        config.llm.apiKey ?? glmApiKey,
+        { model: config.glm?.model ?? 'glm-4' },
+        container.resolve(SERVICE_TOKENS.Logger)
+      );
+    }
+
+    // GLM-only mode (no Claude key but has GLM key)
+    if (glmApiKey && !claudeApiKey) {
+      return createGLMAdapter(
+        glmApiKey,
+        { model: config.glm?.model ?? 'glm-4' },
+        container.resolve(SERVICE_TOKENS.Logger)
+      );
+    }
+
     // Default to Claude
     return createClaudeAdapter(
-      config.llm?.apiKey ?? '',
+      claudeApiKey,
       { model: config.llm?.model },
       container.resolve(SERVICE_TOKENS.Logger)
     );

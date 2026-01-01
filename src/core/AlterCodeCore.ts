@@ -90,6 +90,7 @@ export const SERVICE_TOKENS = {
   MissionManager: createServiceToken<IMissionManager>('MissionManager'),
   ExecutionCoordinator: createServiceToken<IExecutionCoordinator>('ExecutionCoordinator'),
   LLMAdapter: createServiceToken<ILLMAdapter>('LLMAdapter'),
+  HierarchyModelRouter: createServiceToken<ILLMAdapter>('HierarchyModelRouter'),
 };
 
 /**
