@@ -1,557 +1,390 @@
 /**
- * AlterCode - VS Code Extension Entry Point
+ * AlterCode VS Code Extension
  *
- * This is the main entry point for the AlterCode extension.
- * It handles activation, command registration, and lifecycle management.
+ * Main entry point for the VS Code extension:
+ * - Extension activation/deactivation
+ * - Command registration
+ * - UI providers setup
+ * - Core initialization
  */
 
 import * as vscode from 'vscode';
-import { AlterCodeCore } from './core/AlterCodeCore';
-import { StatusBarProvider } from './ui/StatusBarProvider';
-import { UnifiedChatProvider } from './ui/UnifiedChatProvider';
-import { MissionControlPanel } from './ui/MissionControlPanel';
-import { AlterCodeActionProvider } from './ui/AlterCodeActionProvider';
-import { ConfigurationManager } from './utils/ConfigurationManager';
-import { Logger } from './utils/Logger';
-import { StartupValidator } from './utils/StartupValidator';
-import { getClaudeCliValidator } from './utils/ClaudeCliValidator';
-import { getNotificationHelper } from './utils/NotificationHelper';
-import { LogLevel } from './types';
+import {
+  AlterCodeConfig,
+  IEventBus,
+  MissionId,
+  toFilePath,
+} from './types';
 
+import { bootstrap, SERVICE_TOKENS, AlterCodeCore } from './core';
+import { MissionControlPanel, ChatProvider } from './ui';
+
+// Global state
 let core: AlterCodeCore | undefined;
-let logger: Logger;
-let statusBarProvider: StatusBarProvider | undefined;
+let eventBus: IEventBus | undefined;
+let outputChannel: vscode.OutputChannel | undefined;
 
 /**
- * Extension activation function.
- * Called when the extension is activated.
+ * Extension activation
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  // Enable debug logging for development
-  Logger.setMinLevel(LogLevel.DEBUG);
-
-  logger = new Logger('AlterCode');
-  logger.info('Activating AlterCode extension...');
+  outputChannel = vscode.window.createOutputChannel('AlterCode');
+  outputChannel.appendLine('AlterCode extension activating...');
 
   try {
-    // Initialize configuration
-    const configManager = new ConfigurationManager();
-    const config = configManager.getConfig();
-
-    if (!config.enabled) {
-      logger.info('AlterCode is disabled in configuration');
+    // Get workspace folder
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      vscode.window.showWarningMessage('AlterCode: Please open a workspace folder');
       return;
     }
 
-    // Run startup validation
-    const startupValidator = new StartupValidator(configManager);
-    const isFirstRun = await startupValidator.isFirstRun(context);
-    const validationResult = await startupValidator.validate();
+    // Load configuration
+    const config = loadConfiguration(workspaceFolder.uri.fsPath);
 
-    // Show welcome message for first run
-    if (isFirstRun) {
-      const action = await vscode.window.showInformationMessage(
-        'Welcome to AlterCode! Would you like to configure the extension?',
-        'Configure',
-        'Later'
-      );
-      if (action === 'Configure') {
-        await startupValidator.showResults(validationResult);
-      }
-    } else if (!validationResult.valid) {
-      // Show validation errors on subsequent runs
-      await startupValidator.showResults(validationResult);
-    }
+    // Bootstrap core
+    core = bootstrap(config);
+    eventBus = core.getService(SERVICE_TOKENS.EventBus);
 
     // Initialize core
-    core = new AlterCodeCore(context, config);
-    await core.initialize();
-
-    // Register UI providers
-    statusBarProvider = registerUIProviders(context, core, configManager);
+    const initResult = await core.initialize();
+    if (!initResult.ok) {
+      outputChannel.appendLine(`Initialization failed: ${initResult.error.message}`);
+      vscode.window.showErrorMessage(`AlterCode initialization failed: ${initResult.error.message}`);
+      return;
+    }
 
     // Register commands
-    registerCommands(context, core, statusBarProvider, configManager);
+    registerCommands(context);
 
-    // Register code action provider
-    registerCodeActionProvider(context);
+    // Register UI providers
+    registerUIProviders(context);
 
-    logger.info('AlterCode extension activated successfully');
+    // Set up event handlers
+    setupEventHandlers();
 
-    // Show ready notification if CLI is available
-    if (validationResult.claudeStatus.installed) {
-      const notification = getNotificationHelper();
-      notification.log(`AlterCode ready - Claude CLI v${validationResult.claudeStatus.version}`);
-    }
+    // Update status bar
+    updateStatusBar(context);
+
+    outputChannel.appendLine('AlterCode extension activated successfully');
+    vscode.window.showInformationMessage('AlterCode is ready!');
+
   } catch (error) {
-    logger.error('Failed to activate AlterCode extension', error);
-    vscode.window.showErrorMessage(`AlterCode activation failed: ${error}`);
+    outputChannel.appendLine(`Activation error: ${(error as Error).message}`);
+    vscode.window.showErrorMessage(`AlterCode activation failed: ${(error as Error).message}`);
   }
 }
 
 /**
- * Extension deactivation function.
- * Called when the extension is deactivated.
+ * Extension deactivation
  */
 export async function deactivate(): Promise<void> {
-  logger?.info('Deactivating AlterCode extension...');
+  outputChannel?.appendLine('AlterCode extension deactivating...');
 
   if (core) {
-    await core.dispose();
+    await core.shutdown();
     core = undefined;
   }
 
-  logger?.info('AlterCode extension deactivated');
+  outputChannel?.appendLine('AlterCode extension deactivated');
+  outputChannel?.dispose();
 }
 
 /**
- * Register UI providers (status bar, sidebar, etc.)
+ * Load configuration from VS Code settings
  */
-function registerUIProviders(
-  context: vscode.ExtensionContext,
-  core: AlterCodeCore,
-  configManager: ConfigurationManager
-): StatusBarProvider {
-  // Status bar
-  const statusBar = new StatusBarProvider(core);
-  context.subscriptions.push(statusBar);
+function loadConfiguration(projectRoot: string): AlterCodeConfig {
+  const vsConfig = vscode.workspace.getConfiguration('altercode');
 
-  // Unified chat view (combines Chat, Tasks, and Settings in one tabbed interface)
-  const unifiedProvider = new UnifiedChatProvider(context.extensionUri, core, configManager);
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      UnifiedChatProvider.viewType,
-      unifiedProvider
-    )
-  );
-
-  logger.debug('UI providers registered');
-
-  return statusBar;
+  return {
+    projectRoot,
+    llm: {
+      provider: vsConfig.get<'claude' | 'openai'>('llm.provider', 'claude'),
+      apiKey: vsConfig.get<string>('llm.apiKey', ''),
+      model: vsConfig.get<string>('llm.model'),
+    },
+    maxContextTokens: vsConfig.get<number>('maxContextTokens', 128000),
+    logLevel: vsConfig.get<'debug' | 'info' | 'warn' | 'error'>('logLevel', 'info'),
+  };
 }
 
 /**
- * Register extension commands.
+ * Register commands
  */
-function registerCommands(
-  context: vscode.ExtensionContext,
-  core: AlterCodeCore,
-  statusBar: StatusBarProvider,
-  configManager: ConfigurationManager
-): void {
-  // Activate command
+function registerCommands(context: vscode.ExtensionContext): void {
+  // Show Mission Control
   context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.activate', async () => {
-      vscode.window.showInformationMessage('AlterCode is active!');
-    })
-  );
-
-  // Check CLI Status command
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.checkCliStatus', async () => {
-      const notification = getNotificationHelper();
-      const validator = getClaudeCliValidator();
-
-      await notification.withProgress(
-        { title: 'Checking Claude CLI status...' },
-        async () => {
-          validator.clearCache();
-          await statusBar.refreshCliStatus();
-          const status = statusBar.getCliStatus();
-
-          if (status?.installed && status.authenticated) {
-            notification.info(`Claude CLI is ready (v${status.version})`);
-          } else if (status?.installed) {
-            await validator.showInstallationPrompt();
-          } else {
-            await validator.showInstallationPrompt();
-          }
-        }
-      );
-    })
-  );
-
-  // Test Claude CLI directly (for debugging)
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.testClaude', async () => {
-      const { spawn } = require('child_process');
-
-      vscode.window.showInformationMessage('Testing Claude CLI...');
-
-      const childProcess = spawn('claude', ['--print', '--output-format', 'text', '-'], {
-        shell: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      childProcess.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      childProcess.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      childProcess.on('error', (error: Error) => {
-        vscode.window.showErrorMessage(`Claude CLI spawn error: ${error.message}`);
-      });
-
-      childProcess.on('close', (code: number | null) => {
-        if (code === 0 && stdout) {
-          vscode.window.showInformationMessage(`Claude responded: ${stdout.trim().substring(0, 100)}`);
-        } else {
-          vscode.window.showErrorMessage(`Claude CLI failed (code ${code}): ${stderr || 'No output'}`);
-        }
-      });
-
-      // Send test prompt
-      childProcess.stdin.write('Say just the word "success"');
-      childProcess.stdin.end();
-
-      // Timeout
-      setTimeout(() => {
-        childProcess.kill('SIGTERM');
-      }, 30000);
-    })
-  );
-
-  // Test Mission System (for debugging)
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.testMission', async () => {
-      const outputChannel = vscode.window.createOutputChannel('AlterCode Debug');
-      outputChannel.show();
-
-      outputChannel.appendLine('[TEST] Starting mission system test...');
-      outputChannel.appendLine(`[TEST] Time: ${new Date().toISOString()}`);
-
-      try {
-        outputChannel.appendLine('[TEST] Calling submitPlanningDocument...');
-        const mission = await core.submitPlanningDocument('Create a simple hello world function');
-        outputChannel.appendLine(`[TEST] Mission created: ${mission.id}`);
-        outputChannel.appendLine(`[TEST] Title: ${mission.title}`);
-        outputChannel.appendLine(`[TEST] Status: ${mission.status}`);
-        outputChannel.appendLine(`[TEST] Root Tasks: ${mission.rootTaskIds.length}`);
-
-        // Subscribe to state changes for real-time updates
-        outputChannel.appendLine('[TEST] Subscribing to state changes...');
-        const disposable = core.onStateChange((state) => {
-          outputChannel.appendLine(`[STATE] Update at ${new Date().toISOString()}`);
-          outputChannel.appendLine(`[STATE]   Mission: ${state.activeMission?.status || 'none'}`);
-          outputChannel.appendLine(`[STATE]   Queue: ${state.taskQueue.length}, Running: ${state.runningTasks.length}, Completed: ${state.completedTasks.length}`);
-        });
-
-        // Initial state
-        const state = core.getHiveState();
-        outputChannel.appendLine(`[TEST] --- Initial State ---`);
-        outputChannel.appendLine(`[TEST] Active Mission: ${state.activeMission?.id || 'none'}`);
-        outputChannel.appendLine(`[TEST] Agents: ${state.agents.length}`);
-        outputChannel.appendLine(`[TEST] Task Queue: ${state.taskQueue.length}`);
-        outputChannel.appendLine(`[TEST] Running Tasks: ${state.runningTasks.length}`);
-        outputChannel.appendLine(`[TEST] Completed Tasks: ${state.completedTasks.length}`);
-
-        // List agents
-        outputChannel.appendLine(`[TEST] --- Agents ---`);
-        for (const agent of state.agents) {
-          outputChannel.appendLine(`[TEST]   ${agent.role} (Level ${agent.level}) - ${agent.status}`);
-        }
-
-        // List tasks
-        outputChannel.appendLine(`[TEST] --- All Tasks ---`);
-        const allTasks = [...state.taskQueue, ...state.runningTasks, ...state.completedTasks];
-        for (const task of allTasks) {
-          outputChannel.appendLine(`[TEST]   ${task.id.substring(0, 8)}: ${task.title.substring(0, 40)} - ${task.status}`);
-        }
-
-        outputChannel.appendLine('[TEST] Mission submitted, execution in progress...');
-        outputChannel.appendLine('[TEST] Watch the Output channel for state updates and logs.');
-
-        vscode.window.showInformationMessage(`Mission created: ${mission.title}`);
-
-        // Keep checking status for 30 seconds
-        let checkCount = 0;
-        const intervalId = setInterval(() => {
-          checkCount++;
-          const currentState = core.getHiveState();
-          const missionStatus = currentState.activeMission?.status || 'none';
-          outputChannel.appendLine(`[CHECK ${checkCount}] Mission: ${missionStatus}, Queue: ${currentState.taskQueue.length}, Running: ${currentState.runningTasks.length}, Completed: ${currentState.completedTasks.length}`);
-
-          if (missionStatus === 'completed' || missionStatus === 'failed' || missionStatus === 'cancelled' || checkCount >= 30) {
-            clearInterval(intervalId);
-            disposable.dispose();
-            outputChannel.appendLine(`[TEST] Final status: ${missionStatus}`);
-          }
-        }, 1000);
-
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : '';
-        outputChannel.appendLine(`[TEST] ERROR: ${errorMessage}`);
-        outputChannel.appendLine(`[TEST] Stack: ${errorStack}`);
-        vscode.window.showErrorMessage(`Mission test failed: ${errorMessage}`);
+    vscode.commands.registerCommand('altercode.showMissionControl', () => {
+      if (core && eventBus) {
+        const panel = MissionControlPanel.createOrShow(
+          context.extensionUri,
+          eventBus,
+          core.getService(SERVICE_TOKENS.Logger)
+        );
+        panel.updateState(core.getState());
       }
     })
   );
 
-  // Show Mission Control
+  // Start new mission
   context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.showMissionControl', async () => {
-      MissionControlPanel.createOrShow(context.extensionUri, core, configManager);
-    })
-  );
-
-  // Show Chat
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.showChat', async () => {
-      await vscode.commands.executeCommand('altercode.chatView.focus');
-    })
-  );
-
-  // Submit Planning Document
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.submitPlan', async () => {
-      const notification = getNotificationHelper();
-
-      // Check CLI status first
-      const cliStatus = statusBar.getCliStatus();
-      if (!cliStatus?.installed) {
-        const action = await notification.error(
-          'Claude CLI is not installed',
-          null,
-          'Setup',
-          'Cancel'
-        );
-        if (action === 'Setup') {
-          const validator = getClaudeCliValidator();
-          await validator.showInstallationPrompt();
-        }
+    vscode.commands.registerCommand('altercode.newMission', async () => {
+      if (!core) {
+        vscode.window.showErrorMessage('AlterCode is not initialized');
         return;
       }
 
-      const document = await notification.input(
-        'Enter your planning document or describe what you want to accomplish',
-        {
-          placeholder: 'e.g., Add user authentication with JWT tokens and password reset...',
-        }
-      );
+      const title = await vscode.window.showInputBox({
+        prompt: 'Enter mission title',
+        placeHolder: 'e.g., Add authentication feature',
+      });
 
-      if (document) {
-        try {
-          await notification.withProgress(
-            {
-              title: 'AlterCode: Analyzing plan...',
-              cancellable: true,
-              location: vscode.ProgressLocation.Notification,
-            },
-            async (progress, token) => {
-              progress.report({ message: 'Creating mission structure...' });
+      if (!title) return;
 
-              const mission = await core.submitPlanningDocument(document);
+      const description = await vscode.window.showInputBox({
+        prompt: 'Enter mission description',
+        placeHolder: 'Describe what you want to accomplish',
+      });
 
-              if (token.isCancellationRequested) {
-                await core.cancelMission(mission.id);
-                return;
-              }
+      if (!description) return;
 
-              progress.report({ message: 'Mission started!' });
-              notification.info(`Mission "${mission.title}" started with ${mission.rootTaskIds.length} tasks`);
-            }
-          );
-        } catch (error) {
-          notification.error('Failed to submit plan', error, 'Show Output');
-        }
+      const result = await core.createMission({
+        title,
+        description,
+        priority: 'normal',
+      });
+
+      if (result.ok) {
+        vscode.window.showInformationMessage(`Mission created: ${result.value.id}`);
+        vscode.commands.executeCommand('altercode.showMissionControl');
+      } else {
+        vscode.window.showErrorMessage(`Failed to create mission: ${result.error.message}`);
       }
     })
   );
 
-  // Configure
+  // Quick action: Explain file
   context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.configure', async () => {
-      await vscode.commands.executeCommand(
-        'workbench.action.openSettings',
-        '@ext:altercode.altercode'
+    vscode.commands.registerCommand('altercode.explainFile', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || !core) return;
+
+      const result = await core.processMessage(
+        `Explain what this file does: ${editor.document.fileName}`,
+        { currentFile: toFilePath(editor.document.uri.fsPath) }
+      );
+
+      if (result.ok) {
+        // Show in output channel or panel
+        outputChannel?.appendLine('\n--- File Explanation ---');
+        outputChannel?.appendLine(result.value.response);
+        outputChannel?.show();
+      }
+    })
+  );
+
+  // Quick action: Find issues
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.findIssues', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || !core) return;
+
+      vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'AlterCode: Analyzing for issues...',
+          cancellable: true,
+        },
+        async (progress, token) => {
+          const result = await core!.processMessage(
+            `Find potential issues and improvements in this file`,
+            { currentFile: toFilePath(editor.document.uri.fsPath) }
+          );
+
+          if (result.ok) {
+            outputChannel?.appendLine('\n--- Issue Analysis ---');
+            outputChannel?.appendLine(result.value.response);
+            outputChannel?.show();
+          }
+        }
       );
     })
   );
 
-  // Show Output
+  // Quick action: Refactor selection
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.refactorSelection', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || !core) return;
+
+      const selection = editor.selection;
+      const selectedText = editor.document.getText(selection);
+
+      if (!selectedText) {
+        vscode.window.showWarningMessage('Please select code to refactor');
+        return;
+      }
+
+      const result = await core.processMessage(
+        `Refactor this code to be cleaner and more maintainable:\n\`\`\`\n${selectedText}\n\`\`\``,
+        { currentFile: toFilePath(editor.document.uri.fsPath) }
+      );
+
+      if (result.ok && result.value.mission) {
+        vscode.window.showInformationMessage(
+          'Refactoring mission created. Check Mission Control for details.'
+        );
+        vscode.commands.executeCommand('altercode.showMissionControl');
+      }
+    })
+  );
+
+  // Cancel current execution
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.cancelExecution', async () => {
+      if (!core) return;
+
+      const result = await core.cancelExecution();
+      if (result.ok) {
+        vscode.window.showInformationMessage('Execution cancelled');
+      } else {
+        vscode.window.showWarningMessage(result.error.message);
+      }
+    })
+  );
+
+  // Open settings
+  context.subscriptions.push(
+    vscode.commands.registerCommand('altercode.openSettings', () => {
+      vscode.commands.executeCommand('workbench.action.openSettings', 'altercode');
+    })
+  );
+
+  // Show output
   context.subscriptions.push(
     vscode.commands.registerCommand('altercode.showOutput', () => {
-      const notification = getNotificationHelper();
-      notification.showOutput();
+      outputChannel?.show();
     })
   );
-
-  // Pause Mission
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.pauseMission', async () => {
-      const mission = core.getActiveMission();
-      if (mission) {
-        await core.pauseMission(mission.id);
-        vscode.window.showInformationMessage('Mission paused');
-      } else {
-        vscode.window.showWarningMessage('No active mission to pause');
-      }
-    })
-  );
-
-  // Resume Mission
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.resumeMission', async () => {
-      const mission = core.getActiveMission();
-      if (mission) {
-        await core.resumeMission(mission.id);
-        vscode.window.showInformationMessage('Mission resumed');
-      } else {
-        vscode.window.showWarningMessage('No paused mission to resume');
-      }
-    })
-  );
-
-  // Cancel Mission
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.cancelMission', async () => {
-      const mission = core.getActiveMission();
-      if (mission) {
-        const confirm = await vscode.window.showWarningMessage(
-          'Are you sure you want to cancel the current mission?',
-          { modal: true },
-          'Cancel Mission'
-        );
-
-        if (confirm === 'Cancel Mission') {
-          await core.cancelMission(mission.id);
-          vscode.window.showInformationMessage('Mission cancelled');
-        }
-      } else {
-        vscode.window.showWarningMessage('No active mission to cancel');
-      }
-    })
-  );
-
-  // Review Selection
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'altercode.reviewSelection',
-      async (document?: vscode.TextDocument, range?: vscode.Range) => {
-        const editor = vscode.window.activeTextEditor;
-        const doc = document || editor?.document;
-        const selection = range || editor?.selection;
-
-        if (!doc || !selection) {
-          vscode.window.showWarningMessage('Please select some code to review');
-          return;
-        }
-
-        const content = doc.getText(selection);
-        await core.quickAction({
-          action: 'review',
-          filePath: doc.uri.fsPath,
-          startLine: selection.start.line,
-          endLine: selection.end.line,
-          content,
-        });
-      }
-    )
-  );
-
-  // Refactor Selection
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'altercode.refactorSelection',
-      async (document?: vscode.TextDocument, range?: vscode.Range) => {
-        const editor = vscode.window.activeTextEditor;
-        const doc = document || editor?.document;
-        const selection = range || editor?.selection;
-
-        if (!doc || !selection) {
-          vscode.window.showWarningMessage('Please select some code to refactor');
-          return;
-        }
-
-        const content = doc.getText(selection);
-        await core.quickAction({
-          action: 'refactor',
-          filePath: doc.uri.fsPath,
-          startLine: selection.start.line,
-          endLine: selection.end.line,
-          content,
-        });
-      }
-    )
-  );
-
-  // Explain Selection
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'altercode.explainSelection',
-      async (document?: vscode.TextDocument, range?: vscode.Range) => {
-        const editor = vscode.window.activeTextEditor;
-        const doc = document || editor?.document;
-        const selection = range || editor?.selection;
-
-        if (!doc || !selection) {
-          vscode.window.showWarningMessage('Please select some code to explain');
-          return;
-        }
-
-        const content = doc.getText(selection);
-        await core.quickAction({
-          action: 'explain',
-          filePath: doc.uri.fsPath,
-          startLine: selection.start.line,
-          endLine: selection.end.line,
-          content,
-        });
-      }
-    )
-  );
-
-  // Show Quota Status
-  context.subscriptions.push(
-    vscode.commands.registerCommand('altercode.showQuotaStatus', async () => {
-      const status = core.getQuotaStatus();
-      const message = formatQuotaStatus(status);
-      vscode.window.showInformationMessage(message);
-    })
-  );
-
-  logger.debug('Commands registered');
 }
 
 /**
- * Register code action provider for inline actions.
+ * Register UI providers
  */
-function registerCodeActionProvider(context: vscode.ExtensionContext): void {
-  const provider = new AlterCodeActionProvider();
+function registerUIProviders(context: vscode.ExtensionContext): void {
+  if (!core || !eventBus) return;
 
-  context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider(
-      { scheme: 'file' },
-      provider,
-      {
-        providedCodeActionKinds: AlterCodeActionProvider.providedCodeActionKinds,
-      }
-    )
+  // Chat provider
+  const chatProvider = new ChatProvider(
+    context.extensionUri,
+    core,
+    eventBus,
+    core.getService(SERVICE_TOKENS.Logger)
   );
 
-  logger.debug('Code action provider registered');
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      ChatProvider.viewType,
+      chatProvider
+    )
+  );
 }
 
 /**
- * Format quota status for display.
+ * Set up event handlers
  */
-function formatQuotaStatus(
-  status: Record<string, { usageRatio: number; status: string; timeUntilResetMs: number }>
-): string {
-  const lines: string[] = ['AlterCode Quota Status:'];
+function setupEventHandlers(): void {
+  if (!eventBus) return;
 
-  for (const [provider, data] of Object.entries(status)) {
-    const percentage = Math.round(data.usageRatio * 100);
-    const resetMinutes = Math.round(data.timeUntilResetMs / 60000);
-    lines.push(`  ${provider}: ${percentage}% used (${data.status}) - resets in ${resetMinutes}m`);
+  // Handle UI events
+  eventBus.on('ui:cancelMission', async (event) => {
+    const { missionId } = event as unknown as { missionId: string };
+    if (!core) return;
+    const missionManager = core.getService(SERVICE_TOKENS.MissionManager);
+    await missionManager.cancel(missionId as MissionId, 'Cancelled by user');
+  });
+
+  eventBus.on('ui:executeMission', async (event) => {
+    const { missionId } = event as unknown as { missionId: string };
+    if (!core) return;
+    const missionManager = core.getService(SERVICE_TOKENS.MissionManager);
+    const mission = missionManager.get(missionId as MissionId);
+
+    if (mission) {
+      vscode.window.showInformationMessage(`Executing mission: ${mission.title}`);
+      // TODO: Build and execute plan
+    }
+  });
+
+  eventBus.on('ui:refresh', async () => {
+    if (core) {
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    }
+  });
+
+  // Log core events
+  eventBus.on('mission:created', async (event) => {
+    const { mission } = event as unknown as { mission: { title: string } };
+    outputChannel?.appendLine(`Mission created: ${mission.title}`);
+  });
+
+  eventBus.on('mission:completed', async (event) => {
+    const { mission } = event as unknown as { mission: { title: string } };
+    outputChannel?.appendLine(`Mission completed: ${mission.title}`);
+    vscode.window.showInformationMessage(`Mission completed: ${mission.title}`);
+  });
+
+  eventBus.on('mission:failed', async (event) => {
+    const { mission, error } = event as unknown as { mission: { title: string }; error: string };
+    outputChannel?.appendLine(`Mission failed: ${mission.title} - ${error}`);
+    vscode.window.showErrorMessage(`Mission failed: ${error}`);
+  });
+
+  eventBus.on('execution:warnings', async (event) => {
+    const { warnings } = event as unknown as { warnings: string[] };
+    if (warnings.length > 0) {
+      outputChannel?.appendLine(`Warnings: ${warnings.join(', ')}`);
+    }
+  });
+}
+
+/**
+ * Update status bar
+ */
+function updateStatusBar(context: vscode.ExtensionContext): void {
+  const statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100
+  );
+
+  statusBarItem.text = '$(hubot) AlterCode';
+  statusBarItem.tooltip = 'AlterCode AI Assistant';
+  statusBarItem.command = 'altercode.showMissionControl';
+  statusBarItem.show();
+
+  context.subscriptions.push(statusBarItem);
+
+  // Update status on events
+  if (eventBus) {
+    eventBus.on('mission:started', async () => {
+      statusBarItem.text = '$(sync~spin) AlterCode';
+    });
+
+    eventBus.on('mission:completed', async () => {
+      statusBarItem.text = '$(check) AlterCode';
+      setTimeout(() => {
+        statusBarItem.text = '$(hubot) AlterCode';
+      }, 3000);
+    });
+
+    eventBus.on('mission:failed', async () => {
+      statusBarItem.text = '$(error) AlterCode';
+      setTimeout(() => {
+        statusBarItem.text = '$(hubot) AlterCode';
+      }, 3000);
+    });
   }
-
-  return lines.join('\n');
 }

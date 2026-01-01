@@ -1,35 +1,27 @@
-# Source files (we only need compiled dist/)
+# Source files (we bundle everything)
 src/**
 test/**
-out/**
+docs/**
 
 # Development files
 .vscode/**
 .git/**
 .gitignore
-.eslintrc.json
-.prettierrc
-tsconfig.json
+*.ts
+!*.d.ts
+tsconfig*.json
 jest.config.js
-*.log
+.eslintrc*
+.prettierrc*
 
-# Node modules (dependencies are bundled)
+# Node modules (bundled)
 node_modules/**
-
-# Documentation (keep README.md)
-docs/**
 
 # Build artifacts
 *.vsix
 
-# Source maps (not needed in production)
-**/*.map
-
-# Editor files
-*.swp
-*.swo
-*~
-
-# OS files
+# Misc
+*.md
+!README.md
 .DS_Store
 Thumbs.db

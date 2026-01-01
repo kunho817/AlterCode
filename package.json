@@ -1,8 +1,8 @@
 {
   "name": "altercode",
   "displayName": "AlterCode",
-  "description": "AI-powered hierarchical task orchestration for software development using Claude Code and GLM-4.7",
-  "version": "0.1.0",
+  "description": "Reliability-first AI coding assistant with verification and mission control",
+  "version": "2.0.0",
   "publisher": "altercode",
   "engines": {
     "vscode": "^1.85.0"
@@ -14,85 +14,58 @@
   ],
   "keywords": [
     "ai",
-    "claude",
-    "glm",
-    "code-review",
+    "assistant",
+    "code generation",
     "refactoring",
-    "automation"
+    "claude",
+    "gpt",
+    "verification"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/altercode/altercode"
-  },
   "contributes": {
     "commands": [
       {
-        "command": "altercode.activate",
-        "title": "AlterCode: Activate"
-      },
-      {
-        "command": "altercode.testClaude",
-        "title": "AlterCode: Test Claude CLI"
-      },
-      {
-        "command": "altercode.testMission",
-        "title": "AlterCode: Test Mission System"
-      },
-      {
         "command": "altercode.showMissionControl",
-        "title": "AlterCode: Open Mission Control"
+        "title": "Show Mission Control",
+        "category": "AlterCode"
       },
       {
-        "command": "altercode.showChat",
-        "title": "AlterCode: Open Chat"
+        "command": "altercode.newMission",
+        "title": "New Mission",
+        "category": "AlterCode"
       },
       {
-        "command": "altercode.submitPlan",
-        "title": "AlterCode: Submit Planning Document"
+        "command": "altercode.explainFile",
+        "title": "Explain This File",
+        "category": "AlterCode"
       },
       {
-        "command": "altercode.configure",
-        "title": "AlterCode: Configure"
-      },
-      {
-        "command": "altercode.pauseMission",
-        "title": "AlterCode: Pause Current Mission"
-      },
-      {
-        "command": "altercode.resumeMission",
-        "title": "AlterCode: Resume Mission"
-      },
-      {
-        "command": "altercode.cancelMission",
-        "title": "AlterCode: Cancel Mission"
-      },
-      {
-        "command": "altercode.reviewSelection",
-        "title": "AlterCode: Review Selected Code"
+        "command": "altercode.findIssues",
+        "title": "Find Issues",
+        "category": "AlterCode"
       },
       {
         "command": "altercode.refactorSelection",
-        "title": "AlterCode: Refactor Selected Code"
+        "title": "Refactor Selection",
+        "category": "AlterCode"
       },
       {
-        "command": "altercode.explainSelection",
-        "title": "AlterCode: Explain Selected Code"
+        "command": "altercode.cancelExecution",
+        "title": "Cancel Execution",
+        "category": "AlterCode"
       },
       {
-        "command": "altercode.showQuotaStatus",
-        "title": "AlterCode: Show Quota Status"
-      },
-      {
-        "command": "altercode.checkCliStatus",
-        "title": "AlterCode: Check Claude CLI Status"
+        "command": "altercode.openSettings",
+        "title": "Open Settings",
+        "category": "AlterCode"
       },
       {
         "command": "altercode.showOutput",
-        "title": "AlterCode: Show Output"
+        "title": "Show Output",
+        "category": "AlterCode"
       }
     ],
     "viewsContainers": {
@@ -100,147 +73,93 @@
         {
           "id": "altercode",
           "title": "AlterCode",
-          "icon": "assets/icon.svg"
+          "icon": "$(hubot)"
         }
       ]
     },
     "views": {
-      "altercode": [
+      "explorer": [
         {
+          "type": "webview",
           "id": "altercode.chatView",
-          "name": "AlterCode",
-          "type": "webview"
+          "name": "AlterCode Chat"
         }
       ]
     },
     "menus": {
       "editor/context": [
         {
-          "command": "altercode.reviewSelection",
-          "when": "editorHasSelection",
+          "command": "altercode.explainFile",
           "group": "altercode@1"
         },
         {
-          "command": "altercode.refactorSelection",
-          "when": "editorHasSelection",
+          "command": "altercode.findIssues",
           "group": "altercode@2"
         },
         {
-          "command": "altercode.explainSelection",
-          "when": "editorHasSelection",
-          "group": "altercode@3"
+          "command": "altercode.refactorSelection",
+          "group": "altercode@3",
+          "when": "editorHasSelection"
         }
+      ],
+      "commandPalette": [
+        { "command": "altercode.showMissionControl" },
+        { "command": "altercode.newMission" },
+        { "command": "altercode.explainFile", "when": "editorIsOpen" },
+        { "command": "altercode.findIssues", "when": "editorIsOpen" },
+        { "command": "altercode.refactorSelection", "when": "editorHasSelection" },
+        { "command": "altercode.cancelExecution" },
+        { "command": "altercode.openSettings" },
+        { "command": "altercode.showOutput" }
       ]
     },
+    "keybindings": [
+      {
+        "command": "altercode.showMissionControl",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "altercode.newMission",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      }
+    ],
     "configuration": {
       "title": "AlterCode",
       "properties": {
-        "altercode.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable or disable AlterCode"
-        },
-        "altercode.approvalMode": {
+        "altercode.llm.provider": {
           "type": "string",
-          "enum": [
-            "fully_manual",
-            "step_by_step",
-            "full_automation"
-          ],
-          "enumDescriptions": [
-            "Review and approve every code change before applying",
-            "Approve at each hierarchy level before proceeding",
-            "Changes applied automatically with summary notification"
-          ],
-          "default": "fully_manual",
-          "description": "Default approval mode for code changes"
+          "enum": ["claude", "openai"],
+          "default": "claude",
+          "description": "LLM provider to use"
         },
-        "altercode.claude.cliPath": {
+        "altercode.llm.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Path to Claude Code CLI (leave empty for system PATH)"
+          "description": "API key for the LLM provider"
         },
-        "altercode.claude.maxOutputTokens": {
-          "type": "number",
-          "default": 16384,
-          "description": "Maximum output tokens for Claude Code"
-        },
-        "altercode.glm.endpoint": {
-          "type": "string",
-          "default": "https://api.z.ai/api/coding/paas/v4/chat/completions",
-          "description": "GLM API endpoint"
-        },
-        "altercode.glm.apiKey": {
+        "altercode.llm.model": {
           "type": "string",
           "default": "",
-          "description": "GLM API key (leave empty to use Claude for all levels)"
+          "description": "Specific model to use (leave empty for default)"
         },
-        "altercode.glm.model": {
+        "altercode.maxContextTokens": {
+          "type": "number",
+          "default": 128000,
+          "description": "Maximum context window size in tokens"
+        },
+        "altercode.logLevel": {
           "type": "string",
-          "default": "glm-4.7",
-          "description": "GLM model to use"
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "Logging level"
         },
-        "altercode.glm.maxTokens": {
-          "type": "number",
-          "default": 4096,
-          "description": "Maximum tokens for GLM responses"
-        },
-        "altercode.glm.temperature": {
-          "type": "number",
-          "default": 0.7,
-          "minimum": 0,
-          "maximum": 2,
-          "description": "Temperature for GLM responses"
-        },
-        "altercode.hierarchy.maxConcurrentWorkers": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "maximum": 100,
-          "description": "Maximum concurrent worker agents"
-        },
-        "altercode.hierarchy.enableSpecialists": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable Level 4 Specialist agents"
-        },
-        "altercode.hierarchy.complexityThreshold": {
-          "type": "number",
-          "default": 60,
-          "minimum": 0,
-          "maximum": 100,
-          "description": "Complexity score threshold for using Claude vs GLM at Specialist level"
-        },
-        "altercode.quota.warningThreshold": {
-          "type": "number",
-          "default": 0.8,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Quota warning threshold (0-1)"
-        },
-        "altercode.quota.hardStopThreshold": {
-          "type": "number",
-          "default": 0.95,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Quota hard stop threshold (0-1)"
-        },
-        "altercode.ui.showStatusBar": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show AlterCode status in the status bar"
-        },
-        "altercode.ui.autoOpenMissionControl": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically open Mission Control for complex missions"
-        },
-        "altercode.storage.maxHistoryDays": {
-          "type": "number",
-          "default": 30,
-          "minimum": 1,
-          "maximum": 365,
-          "description": "Maximum days to keep mission history"
+        "altercode.verification.strictness": {
+          "type": "string",
+          "enum": ["strict", "standard", "lenient"],
+          "default": "standard",
+          "description": "Verification strictness level"
         }
       }
     }
@@ -248,41 +167,33 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "build:dev": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
-    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
     "lint": "eslint src --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "jest --testPathIgnorePatterns=benchmark",
-    "test:watch": "jest --watch --testPathIgnorePatterns=benchmark",
-    "test:coverage": "jest --coverage --testPathIgnorePatterns=benchmark",
-    "benchmark": "jest --testPathPatterns=benchmark --verbose --testTimeout=60000",
-    "compile": "tsc -p ./",
-    "package": "vsce package",
-    "publish": "vsce publish"
-  },
-  "dependencies": {
-    "axios": "^1.6.5",
-    "diff": "^5.1.0",
-    "uuid": "^9.0.1"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "typecheck": "tsc --noEmit",
+    "typecheck:dev": "tsc --project tsconfig.dev.json --noEmit"
   },
   "devDependencies": {
-    "@types/diff": "^5.0.9",
-    "@types/jest": "^30.0.0",
-    "@types/mocha": "^10.0.6",
-    "@types/node": "^20.11.0",
-    "@types/uuid": "^9.0.7",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.5",
     "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^6.19.0",
-    "@typescript-eslint/parser": "^6.19.0",
-    "@vscode/test-electron": "^2.3.8",
-    "esbuild": "^0.19.11",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "esbuild": "^0.19.10",
     "eslint": "^8.56.0",
-    "jest": "^30.2.0",
-    "mocha": "^10.2.0",
-    "prettier": "^3.2.4",
-    "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.2",
+    "eslint-config-prettier": "^9.1.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.1",
+    "ts-jest": "^29.1.1",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "level": "^8.0.0",
+    "sql.js": "^1.9.0",
+    "uuid": "^9.0.1"
   }
 }

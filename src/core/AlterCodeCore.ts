@@ -1,559 +1,485 @@
 /**
  * AlterCode Core
  *
- * Central orchestration class that coordinates all AlterCode subsystems.
+ * Main orchestrator that ties all layers together:
+ * - Service initialization and lifecycle
+ * - Request routing
+ * - State management
+ * - Event coordination
  */
 
-import * as vscode from 'vscode';
-import { EventEmitter } from 'events';
 import {
+  IServiceContainer,
+  IEventBus,
+  ILogger,
+  IFileSystem,
+  ICache,
+  IDatabase,
+  IConfigManager,
+  IProjectSnapshotService,
+  ISemanticIndexService,
+  IConventionExtractorService,
+  IErrorMemoryService,
+  ITokenBudgetService,
+  IContextSelectorService,
+  IProgressiveDisclosureService,
+  IConversationCompressorService,
+  IFileValidatorService,
+  ISymbolResolverService,
+  IAPICheckerService,
+  IDependencyVerifierService,
+  IVerificationPipelineService,
+  IIntentParserService,
+  IScopeGuardService,
+  IPreflightCheckerService,
+  IRollbackService,
+  IImpactAnalyzerService,
+  ITaskManager,
+  IAgentPool,
+  IMissionManager,
+  IExecutionCoordinator,
+  ILLMAdapter,
   AlterCodeConfig,
-  Mission,
-  MissionStatus,
   HiveState,
-  QuotaStatus,
-  QuickAction,
-  AIProvider,
-  AlterCodeEvent,
-  EventType,
-  HierarchyAgent,
-  Task,
-  PendingApproval,
+  Mission,
+  MissionConfig,
+  ExecutionPlan,
+  ExecutionResult,
+  UserIntent,
+  FilePath,
+  MissionId,
+  AsyncResult,
+  Ok,
+  Err,
+  AppError,
+  CancellationToken,
+  toFilePath,
+  ServiceToken,
 } from '../types';
-import { HierarchyManager } from './hierarchy/HierarchyManager';
-import { TaskManager } from './task/TaskManager';
-import { ExecutionCoordinator } from './execution/ExecutionCoordinator';
-import { Sovereign } from './sovereign/Sovereign';
-import { AgentPool } from '../agents/AgentPool';
-import { StateManager } from '../storage/StateManager';
-import { QuotaTracker } from '../quota/QuotaTracker';
-import { ApprovalManager } from './approval/ApprovalManager';
-import { ApprovalUI } from '../ui/ApprovalUI';
-import { Logger } from '../utils/Logger';
+
+import { createServiceToken } from '../infrastructure';
+
+// Service tokens for DI
+export const SERVICE_TOKENS = {
+  Logger: createServiceToken<ILogger>('Logger'),
+  EventBus: createServiceToken<IEventBus>('EventBus'),
+  FileSystem: createServiceToken<IFileSystem>('FileSystem'),
+  Cache: createServiceToken<ICache>('Cache'),
+  Database: createServiceToken<IDatabase>('Database'),
+  ConfigManager: createServiceToken<IConfigManager>('ConfigManager'),
+  ProjectSnapshot: createServiceToken<IProjectSnapshotService>('ProjectSnapshot'),
+  SemanticIndex: createServiceToken<ISemanticIndexService>('SemanticIndex'),
+  ConventionExtractor: createServiceToken<IConventionExtractorService>('ConventionExtractor'),
+  ErrorMemory: createServiceToken<IErrorMemoryService>('ErrorMemory'),
+  TokenBudget: createServiceToken<ITokenBudgetService>('TokenBudget'),
+  ContextSelector: createServiceToken<IContextSelectorService>('ContextSelector'),
+  ProgressiveDisclosure: createServiceToken<IProgressiveDisclosureService>('ProgressiveDisclosure'),
+  ConversationCompressor: createServiceToken<IConversationCompressorService>('ConversationCompressor'),
+  FileValidator: createServiceToken<IFileValidatorService>('FileValidator'),
+  SymbolResolver: createServiceToken<ISymbolResolverService>('SymbolResolver'),
+  APIChecker: createServiceToken<IAPICheckerService>('APIChecker'),
+  DependencyVerifier: createServiceToken<IDependencyVerifierService>('DependencyVerifier'),
+  VerificationPipeline: createServiceToken<IVerificationPipelineService>('VerificationPipeline'),
+  IntentParser: createServiceToken<IIntentParserService>('IntentParser'),
+  ScopeGuard: createServiceToken<IScopeGuardService>('ScopeGuard'),
+  PreflightChecker: createServiceToken<IPreflightCheckerService>('PreflightChecker'),
+  Rollback: createServiceToken<IRollbackService>('Rollback'),
+  ImpactAnalyzer: createServiceToken<IImpactAnalyzerService>('ImpactAnalyzer'),
+  TaskManager: createServiceToken<ITaskManager>('TaskManager'),
+  AgentPool: createServiceToken<IAgentPool>('AgentPool'),
+  MissionManager: createServiceToken<IMissionManager>('MissionManager'),
+  ExecutionCoordinator: createServiceToken<IExecutionCoordinator>('ExecutionCoordinator'),
+  LLMAdapter: createServiceToken<ILLMAdapter>('LLMAdapter'),
+};
 
 /**
- * Central orchestration class for AlterCode.
+ * AlterCode Core implementation
  */
-export class AlterCodeCore extends EventEmitter {
-  private readonly context: vscode.ExtensionContext;
+export class AlterCodeCore {
+  private readonly container: IServiceContainer;
   private readonly config: AlterCodeConfig;
-  private readonly logger: Logger;
+  private readonly logger: ILogger;
+  private readonly eventBus: IEventBus;
 
-  // Subsystems
-  private hierarchyManager!: HierarchyManager;
-  private taskManager!: TaskManager;
-  private executionCoordinator!: ExecutionCoordinator;
-  private sovereign!: Sovereign;
-  private agentPool!: AgentPool;
-  private stateManager!: StateManager;
-  private quotaTracker!: QuotaTracker;
-  private approvalManager!: ApprovalManager;
-  private approvalUI!: ApprovalUI;
+  // Cached service references
+  private missionManager!: IMissionManager;
+  private executionCoordinator!: IExecutionCoordinator;
+  private intentParser!: IIntentParserService;
+  private semanticIndex!: ISemanticIndexService;
+  private projectSnapshot!: IProjectSnapshotService;
 
   // State
-  private activeMission: Mission | null = null;
   private initialized: boolean = false;
+  private currentMission: Mission | null = null;
 
-  constructor(context: vscode.ExtensionContext, config: AlterCodeConfig) {
-    super();
-    this.context = context;
+  constructor(container: IServiceContainer, config: AlterCodeConfig) {
+    this.container = container;
     this.config = config;
-    this.logger = new Logger('AlterCodeCore');
+    this.logger = container.resolve(SERVICE_TOKENS.Logger);
+    this.eventBus = container.resolve(SERVICE_TOKENS.EventBus);
   }
 
   /**
-   * Initialize all subsystems.
+   * Initialize the core
    */
-  async initialize(): Promise<void> {
+  async initialize(): AsyncResult<void> {
     if (this.initialized) {
-      this.logger.warn('AlterCodeCore already initialized');
-      return;
+      return Ok(undefined);
     }
 
-    this.logger.info('Initializing AlterCode subsystems...');
+    this.logger.info('Initializing AlterCode Core', {
+      projectRoot: this.config.projectRoot,
+    });
 
     try {
-      // Initialize storage first
-      this.stateManager = new StateManager(this.context, this.config.storage);
-      await this.stateManager.initialize();
+      // Resolve services
+      this.missionManager = this.container.resolve(SERVICE_TOKENS.MissionManager);
+      this.executionCoordinator = this.container.resolve(SERVICE_TOKENS.ExecutionCoordinator);
+      this.intentParser = this.container.resolve(SERVICE_TOKENS.IntentParser);
+      this.semanticIndex = this.container.resolve(SERVICE_TOKENS.SemanticIndex);
+      this.projectSnapshot = this.container.resolve(SERVICE_TOKENS.ProjectSnapshot);
 
-      // Initialize quota tracking
-      this.quotaTracker = new QuotaTracker(this.stateManager, this.config.quota);
-      await this.quotaTracker.initialize();
+      // Initialize semantic index
+      const indexResult = await this.semanticIndex.index(this.config.projectRoot);
+      if (!indexResult.ok) {
+        this.logger.warn('Initial indexing failed', { error: indexResult.error });
+      }
 
-      // Initialize agent pool
-      this.agentPool = new AgentPool(this.config, this.quotaTracker);
-      await this.agentPool.initialize();
+      // Take initial snapshot
+      const snapshotResult = await this.projectSnapshot.capture();
+      if (!snapshotResult.ok) {
+        this.logger.warn('Initial snapshot failed', { error: snapshotResult.error });
+      }
 
-      // Initialize hierarchy manager
-      this.hierarchyManager = new HierarchyManager(this.stateManager);
-
-      // Initialize task manager
-      this.taskManager = new TaskManager(this.stateManager);
-
-      // Initialize approval manager and UI
-      this.approvalManager = new ApprovalManager(this.config.approvalMode);
-      this.approvalUI = new ApprovalUI(this.approvalManager);
-
-      // Initialize execution coordinator
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-      this.executionCoordinator = new ExecutionCoordinator(
-        this.taskManager,
-        this.agentPool,
-        this.hierarchyManager,
-        this.approvalManager,
-        this.quotaTracker,
-        workspaceRoot,
-        this.config.hierarchy.maxConcurrentWorkers
-      );
-
-      // Initialize sovereign (Level 0)
-      this.sovereign = new Sovereign(
-        this.agentPool,
-        this.taskManager,
-        this.hierarchyManager
-      );
-
-      // Set up event forwarding
-      this.setupEventForwarding();
+      // Set up event handlers
+      this.setupEventHandlers();
 
       this.initialized = true;
-      this.logger.info('AlterCode subsystems initialized successfully');
+      this.logger.info('AlterCode Core initialized');
+
+      await this.eventBus.emit('core:initialized', { config: this.config });
+
+      return Ok(undefined);
     } catch (error) {
-      this.logger.error('Failed to initialize AlterCode subsystems', error);
-      throw error;
+      this.logger.error('Initialization failed', error as Error);
+      return Err(new AppError('CORE', `Initialization failed: ${(error as Error).message}`));
     }
   }
 
   /**
-   * Dispose all subsystems.
+   * Process a user message
    */
-  async dispose(): Promise<void> {
-    this.logger.info('Disposing AlterCode subsystems...');
-
-    if (this.activeMission) {
-      await this.cancelMission(this.activeMission.id);
-    }
-
-    await this.executionCoordinator?.dispose();
-    await this.agentPool?.dispose();
-    await this.stateManager?.close();
-    this.approvalUI?.dispose();
-
-    this.initialized = false;
-    this.logger.info('AlterCode subsystems disposed');
-  }
-
-  /**
-   * Submit a planning document to start a new mission.
-   * @param document The planning document content
-   * @param options.planOnly If true, only plan without executing (for Planning mode)
-   */
-  async submitPlanningDocument(
-    document: string,
-    options: { planOnly?: boolean } = {}
-  ): Promise<Mission> {
-    this.ensureInitialized();
-
-    if (this.activeMission && this.activeMission.status === MissionStatus.EXECUTING) {
-      throw new Error('A mission is already in progress. Please pause or cancel it first.');
-    }
-
-    this.logger.info(`Submitting planning document (planOnly: ${options.planOnly ?? false})...`);
-
-    // Update approval mode from current config
-    this.approvalManager.setApprovalMode(this.config.approvalMode);
-
-    // Create mission
-    const mission = await this.sovereign.createMission(document);
-
-    // Apply current config to mission
-    mission.config.approvalMode = this.config.approvalMode;
-    mission.config.maxConcurrentWorkers = this.config.hierarchy.maxConcurrentWorkers;
-
-    // Save mission to state manager (required before startMission can find it)
-    await this.stateManager.createMission(mission);
-
-    this.activeMission = mission;
-
-    // Emit event
-    this.emitEvent(EventType.MISSION_CREATED, { mission });
-
-    // In planOnly mode, run planning phase (decompose but don't execute workers)
-    if (options.planOnly) {
-      this.logger.info('Planning-only mode: Running planning phase...');
-      await this.runPlanningPhase(mission.id);
-    } else {
-      // Full execution mode
-      await this.startMission(mission.id);
-    }
-
-    return mission;
-  }
-
-  /**
-   * Run planning phase only (decompose tasks down to WORKER level, then stop).
-   */
-  async runPlanningPhase(missionId: string): Promise<void> {
-    this.ensureInitialized();
-
-    const mission = await this.stateManager.getMission(missionId);
-    if (!mission) {
-      throw new Error(`Mission not found: ${missionId}`);
-    }
-
-    this.logger.info(`Running planning phase for mission: ${missionId}`);
-
-    mission.status = MissionStatus.PLANNING;
-    await this.stateManager.updateMission(mission);
-
-    this.activeMission = mission;
-    this.emitEvent(EventType.MISSION_STARTED, { mission });
-
-    // Run planning (decompose all levels except WORKER)
-    this.executionCoordinator
-      .planOnly(mission)
-      .then(async () => {
-        this.logger.info(`Planning phase completed: ${missionId}`);
-        mission.status = MissionStatus.PLANNED;
-        await this.stateManager.updateMission(mission);
-        this.emitEvent(EventType.MISSION_PAUSED, { mission }); // Use paused event to trigger UI update
-      })
-      .catch((error) => {
-        this.logger.error(`Planning phase failed: ${missionId}`, error);
-        this.handleMissionFailure(mission, error);
-      });
-  }
-
-  /**
-   * Execute a planned mission (run WORKER tasks).
-   * Call this after planning phase completes to start actual execution.
-   */
-  async executePlan(missionId: string): Promise<void> {
-    this.ensureInitialized();
-
-    const mission = await this.stateManager.getMission(missionId);
-    if (!mission) {
-      throw new Error(`Mission not found: ${missionId}`);
-    }
-
-    if (mission.status !== MissionStatus.PLANNED && mission.status !== MissionStatus.PAUSED) {
-      throw new Error(`Mission is not in planned state: ${mission.status}`);
-    }
-
-    this.logger.info(`Executing planned mission: ${missionId}`);
-
-    // Start full execution (will run WORKER tasks)
-    await this.startMission(missionId);
-  }
-
-  /**
-   * Start or resume a mission.
-   */
-  async startMission(missionId: string): Promise<void> {
-    this.ensureInitialized();
-
-    const mission = await this.stateManager.getMission(missionId);
-    if (!mission) {
-      throw new Error(`Mission not found: ${missionId}`);
-    }
-
-    this.logger.info(`Starting mission: ${missionId}`);
-
-    mission.status = MissionStatus.EXECUTING;
-    mission.startedAt = mission.startedAt || new Date();
-    await this.stateManager.updateMission(mission);
-
-    this.activeMission = mission;
-    this.emitEvent(EventType.MISSION_STARTED, { mission });
-
-    // Start execution
-    this.executionCoordinator
-      .execute(mission)
-      .then(async () => {
-        // Mission completed successfully
-        this.logger.info(`Mission execution completed: ${missionId}`);
-        await this.handleMissionCompletion(mission);
-      })
-      .catch((error) => {
-        this.logger.error(`Mission execution failed: ${missionId}`, error);
-        this.handleMissionFailure(mission, error);
-      });
-  }
-
-  /**
-   * Pause the current mission.
-   */
-  async pauseMission(missionId: string): Promise<void> {
-    this.ensureInitialized();
-
-    const mission = await this.stateManager.getMission(missionId);
-    if (!mission) {
-      throw new Error(`Mission not found: ${missionId}`);
-    }
-
-    this.logger.info(`Pausing mission: ${missionId}`);
-
-    await this.executionCoordinator.pause();
-
-    mission.status = MissionStatus.PAUSED;
-    await this.stateManager.updateMission(mission);
-
-    this.emitEvent(EventType.MISSION_PAUSED, { mission });
-  }
-
-  /**
-   * Resume a paused mission.
-   */
-  async resumeMission(missionId: string): Promise<void> {
-    this.ensureInitialized();
-
-    const mission = await this.stateManager.getMission(missionId);
-    if (!mission) {
-      throw new Error(`Mission not found: ${missionId}`);
-    }
-
-    if (mission.status !== MissionStatus.PAUSED) {
-      throw new Error(`Mission is not paused: ${missionId}`);
-    }
-
-    this.logger.info(`Resuming mission: ${missionId}`);
-
-    mission.status = MissionStatus.EXECUTING;
-    await this.stateManager.updateMission(mission);
-
-    this.emitEvent(EventType.MISSION_RESUMED, { mission });
-
-    await this.executionCoordinator.resume();
-  }
-
-  /**
-   * Cancel the current mission.
-   */
-  async cancelMission(missionId: string): Promise<void> {
-    this.ensureInitialized();
-
-    const mission = await this.stateManager.getMission(missionId);
-    if (!mission) {
-      throw new Error(`Mission not found: ${missionId}`);
-    }
-
-    this.logger.info(`Cancelling mission: ${missionId}`);
-
-    await this.executionCoordinator.cancel();
-
-    mission.status = MissionStatus.CANCELLED;
-    mission.completedAt = new Date();
-    await this.stateManager.updateMission(mission);
-
-    if (this.activeMission?.id === missionId) {
-      this.activeMission = null;
-    }
-
-    this.emitEvent(EventType.MISSION_CANCELLED, { mission });
-  }
-
-  /**
-   * Execute a quick action (review, refactor, explain).
-   */
-  async quickAction(action: QuickAction): Promise<void> {
-    this.ensureInitialized();
-
-    this.logger.info(`Executing quick action: ${action.action} on ${action.filePath}`);
-
-    // Create a mini-mission for the quick action
-    const prompt = this.buildQuickActionPrompt(action);
-    await this.submitPlanningDocument(prompt);
-  }
-
-  /**
-   * Get the currently active mission.
-   */
-  getActiveMission(): Mission | null {
-    return this.activeMission;
-  }
-
-  /**
-   * Get current hive state for UI.
-   */
-  getHiveState(): HiveState {
-    return {
-      activeMission: this.activeMission,
-      agents: this.hierarchyManager?.getActiveAgents() ?? [],
-      taskQueue: this.taskManager?.getPendingTasks() ?? [],
-      runningTasks: this.taskManager?.getRunningTasks() ?? [],
-      completedTasks: this.taskManager?.getCompletedTasks() ?? [],
-      quotaStatus: this.getQuotaStatus(),
-      pendingApprovals: this.approvalManager?.getPendingApprovals() ?? [],
-    };
-  }
-
-  /**
-   * Get quota status for all providers.
-   */
-  getQuotaStatus(): Record<AIProvider, QuotaStatus> {
-    if (!this.quotaTracker) {
-      return {
-        claude: this.createDefaultQuotaStatus('claude'),
-        glm: this.createDefaultQuotaStatus('glm'),
-      };
-    }
-
-    return {
-      claude: this.quotaTracker.getStatus('claude'),
-      glm: this.quotaTracker.getStatus('glm'),
-    };
-  }
-
-  /**
-   * Respond to an approval request.
-   */
-  async respondToApproval(
-    approvalId: string,
-    response: { approved: boolean; modifications?: unknown }
-  ): Promise<void> {
-    this.ensureInitialized();
-
-    await this.approvalManager.respond(approvalId, response);
-  }
-
-  /**
-   * Subscribe to state changes.
-   */
-  onStateChange(callback: (state: HiveState) => void): vscode.Disposable {
-    const handler = () => callback(this.getHiveState());
-
-    this.on('stateChange', handler);
-
-    return new vscode.Disposable(() => {
-      this.off('stateChange', handler);
-    });
-  }
-
-  // =========================================================================
-  // Private Methods
-  // =========================================================================
-
-  private ensureInitialized(): void {
+  async processMessage(
+    message: string,
+    context?: { currentFile?: FilePath }
+  ): AsyncResult<{ response: string; mission?: Mission }> {
     if (!this.initialized) {
-      throw new Error('AlterCodeCore is not initialized');
+      const initResult = await this.initialize();
+      if (!initResult.ok) {
+        return Err(initResult.error);
+      }
+    }
+
+    this.logger.info('Processing message', { messageLength: message.length });
+
+    try {
+      // Parse intent
+      const intent = this.intentParser.parse(message, context);
+
+      await this.eventBus.emit('core:intentParsed', { intent });
+
+      // Handle based on intent type
+      switch (intent.type) {
+        case 'query':
+          return this.handleQuery(message, intent);
+
+        case 'analyze':
+          return this.handleAnalysis(message, intent);
+
+        case 'create':
+        case 'modify':
+        case 'delete':
+          return this.handleCodeChange(message, intent, context);
+
+        default:
+          return this.handleGeneral(message, intent);
+      }
+    } catch (error) {
+      this.logger.error('Message processing failed', error as Error);
+      return Err(new AppError('CORE', `Processing failed: ${(error as Error).message}`));
     }
   }
 
-  private setupEventForwarding(): void {
-    // Forward events from subsystems
-    this.executionCoordinator.on('taskCompleted', (task: Task) => {
-      this.emitEvent(EventType.TASK_COMPLETED, { task });
-      this.emit('stateChange');
-    });
-
-    this.executionCoordinator.on('taskFailed', (task: Task, error: Error) => {
-      this.emitEvent(EventType.TASK_FAILED, { task, error });
-      this.emit('stateChange');
-    });
-
-    this.quotaTracker.on('warning', (status: QuotaStatus) => {
-      this.emitEvent(EventType.QUOTA_WARNING, { status });
-    });
-
-    this.quotaTracker.on('exceeded', (status: QuotaStatus) => {
-      this.emitEvent(EventType.QUOTA_EXCEEDED, { status });
-    });
-
-    this.approvalManager.on('requested', (approval: PendingApproval) => {
-      this.emitEvent(EventType.APPROVAL_REQUESTED, { approval });
-    });
-  }
-
-  private emitEvent<T>(type: EventType, payload: T): void {
-    const event: AlterCodeEvent<T> = {
-      type,
-      timestamp: new Date(),
-      payload,
-    };
-    this.emit(type, event);
-    this.emit('event', event);
-    // Always emit stateChange so UI updates
-    this.emit('stateChange');
-  }
-
-  private async handleMissionCompletion(mission: Mission): Promise<void> {
-    mission.status = MissionStatus.COMPLETED;
-    mission.completedAt = new Date();
-    await this.stateManager.updateMission(mission);
-
-    // Clear active mission
-    if (this.activeMission?.id === mission.id) {
-      this.activeMission = null;
+  /**
+   * Create and start a mission
+   */
+  async createMission(config: MissionConfig): AsyncResult<Mission> {
+    if (!this.initialized) {
+      const initResult = await this.initialize();
+      if (!initResult.ok) {
+        return Err(initResult.error);
+      }
     }
 
-    this.emitEvent(EventType.MISSION_COMPLETED, { mission });
-    this.logger.info(`Mission completed successfully: ${mission.id}`);
-  }
+    this.logger.info('Creating mission', { title: config.title });
 
-  private async handleMissionFailure(mission: Mission, error: Error): Promise<void> {
-    mission.status = MissionStatus.FAILED;
-    mission.completedAt = new Date();
-    await this.stateManager.updateMission(mission);
-
-    if (this.activeMission?.id === mission.id) {
-      this.activeMission = null;
+    const result = await this.missionManager.create(config);
+    if (!result.ok) {
+      return Err(result.error);
     }
 
-    this.emitEvent(EventType.MISSION_FAILED, { mission, error });
+    this.currentMission = result.value;
+
+    await this.eventBus.emit('core:missionCreated', { mission: result.value });
+
+    return Ok(result.value);
   }
 
-  private buildQuickActionPrompt(action: QuickAction): string {
-    const actionDescriptions: Record<string, string> = {
-      review: 'Review the following code for issues, best practices, and potential improvements',
-      refactor: 'Refactor the following code to improve its quality, readability, and maintainability',
-      explain: 'Explain what the following code does in detail',
-      test: 'Generate comprehensive tests for the following code',
-    };
+  /**
+   * Execute a mission plan
+   */
+  async executePlan(
+    plan: ExecutionPlan,
+    cancellation?: CancellationToken
+  ): AsyncResult<ExecutionResult> {
+    if (!this.initialized) {
+      return Err(new AppError('CORE', 'Core not initialized'));
+    }
 
-    const description = actionDescriptions[action.action] || 'Analyze the following code';
+    this.logger.info('Executing plan', {
+      missionId: plan.missionId,
+      taskCount: plan.tasks.length,
+    });
 
-    return `
-# Quick Action: ${action.action.charAt(0).toUpperCase() + action.action.slice(1)}
+    const result = await this.executionCoordinator.execute(plan, cancellation);
 
-## File
-${action.filePath}${action.startLine !== undefined ? `:${action.startLine}-${action.endLine}` : ''}
+    if (result.ok) {
+      await this.eventBus.emit('core:executionCompleted', { result: result.value });
+    } else {
+      await this.eventBus.emit('core:executionFailed', { error: result.error });
+    }
 
-## Task
-${description}
-
-## Code
-\`\`\`
-${action.content}
-\`\`\`
-`.trim();
+    return result;
   }
 
-  private createDefaultQuotaStatus(provider: AIProvider): QuotaStatus {
+  /**
+   * Cancel current execution
+   */
+  async cancelExecution(): AsyncResult<void> {
+    if (!this.currentMission) {
+      return Err(new AppError('CORE', 'No active mission'));
+    }
+
+    return this.executionCoordinator.cancel(this.currentMission.id);
+  }
+
+  /**
+   * Get current state
+   */
+  getState(): HiveState {
+    const missionStats = this.missionManager?.getStats();
+    const activeMissions = this.missionManager?.getActive() ?? [];
+
     return {
-      provider,
-      usageRatio: 0,
-      status: 'ok',
-      timeUntilResetMs: 5 * 60 * 60 * 1000, // 5 hours
-      currentWindow: {
-        id: 'default',
-        provider,
-        windowStart: new Date(),
-        windowEnd: new Date(Date.now() + 5 * 60 * 60 * 1000),
-        windowDurationMs: 5 * 60 * 60 * 1000,
-        usage: {
-          callCount: 0,
-          tokensSent: 0,
-          tokensReceived: 0,
-          byLevel: {} as Record<number, { callCount: number; tokensSent: number; tokensReceived: number }>,
-        },
-        limits: {
-          maxCalls: null,
-          maxTokens: null,
-          warningThreshold: 0.8,
-          hardStopThreshold: 0.95,
-        },
+      initialized: this.initialized,
+      projectRoot: this.config.projectRoot,
+      currentMission: this.currentMission,
+      activeMissions,
+      stats: {
+        missions: missionStats ?? { total: 0, pending: 0, active: 0, completed: 0, failed: 0, cancelled: 0 },
       },
     };
   }
+
+  /**
+   * Get service from container
+   */
+  getService<T>(token: ServiceToken<T>): T {
+    return this.container.resolve(token);
+  }
+
+  /**
+   * Handle query intent
+   */
+  private async handleQuery(
+    message: string,
+    intent: UserIntent
+  ): AsyncResult<{ response: string }> {
+    // Search semantic index for relevant information
+    const searchResults = this.semanticIndex.search(message, { limit: 10 });
+
+    if (searchResults.length === 0) {
+      return Ok({
+        response: "I couldn't find relevant information in the codebase. Could you be more specific?",
+      });
+    }
+
+    // Build response with search results
+    const response = this.formatSearchResults(searchResults, message);
+    return Ok({ response });
+  }
+
+  /**
+   * Handle analysis intent
+   */
+  private async handleAnalysis(
+    message: string,
+    intent: UserIntent
+  ): AsyncResult<{ response: string; mission?: Mission }> {
+    // Create analysis mission
+    const missionResult = await this.createMission({
+      title: `Analysis: ${message.slice(0, 50)}...`,
+      description: message,
+      priority: 'normal',
+      scope: {
+        files: intent.targets.filter((t) => t.type === 'file').map((t) => t.name),
+      },
+    });
+
+    if (!missionResult.ok) {
+      return Ok({ response: `Failed to create analysis mission: ${missionResult.error.message}` });
+    }
+
+    return Ok({
+      response: `I'll analyze this for you. Mission created: ${missionResult.value.id}`,
+      mission: missionResult.value,
+    });
+  }
+
+  /**
+   * Handle code change intent
+   */
+  private async handleCodeChange(
+    message: string,
+    intent: UserIntent,
+    context?: { currentFile?: FilePath }
+  ): AsyncResult<{ response: string; mission?: Mission }> {
+    // Create mission for code changes
+    const missionResult = await this.createMission({
+      title: `${intent.type}: ${message.slice(0, 50)}...`,
+      description: message,
+      priority: 'normal',
+      scope: {
+        files: intent.targets.filter((t) => t.type === 'file').map((t) => t.name),
+      },
+      constraints: intent.constraints.map((c) => ({
+        type: c.type,
+        value: c.value,
+      })),
+    });
+
+    if (!missionResult.ok) {
+      return Ok({ response: `Failed to create mission: ${missionResult.error.message}` });
+    }
+
+    // Return with mission for further execution
+    return Ok({
+      response: `I'll work on that. Mission created: ${missionResult.value.id}. Ready to plan the implementation.`,
+      mission: missionResult.value,
+    });
+  }
+
+  /**
+   * Handle general intent
+   */
+  private async handleGeneral(
+    message: string,
+    intent: UserIntent
+  ): AsyncResult<{ response: string }> {
+    // For general queries, provide helpful guidance
+    return Ok({
+      response: `I understand you want to "${message}". I can help you with:
+- Analyzing code and finding patterns
+- Creating or modifying files
+- Refactoring and improving code quality
+- Finding and fixing issues
+
+What would you like me to do?`,
+    });
+  }
+
+  /**
+   * Format search results
+   */
+  private formatSearchResults(
+    results: Array<{ symbol: any; score: number }>,
+    query: string
+  ): string {
+    const lines: string[] = [`Found ${results.length} relevant items for "${query}":\n`];
+
+    for (const result of results.slice(0, 5)) {
+      const { symbol, score } = result;
+      lines.push(`- **${symbol.name}** (${symbol.kind})`);
+      lines.push(`  Location: ${symbol.location.file}:${symbol.location.line}`);
+      if (symbol.documentation) {
+        lines.push(`  ${symbol.documentation.slice(0, 100)}...`);
+      }
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Set up event handlers
+   */
+  private setupEventHandlers(): void {
+    // Mission events
+    this.eventBus.on('mission:completed', async (event) => {
+      const { mission } = event as unknown as { mission: Mission };
+      this.logger.info('Mission completed', { missionId: mission.id });
+      if (this.currentMission?.id === mission.id) {
+        this.currentMission = null;
+      }
+    });
+
+    this.eventBus.on('mission:failed', async (event) => {
+      const { mission, error } = event as unknown as { mission: Mission; error: Error };
+      this.logger.error('Mission failed', error, { missionId: mission.id });
+      if (this.currentMission?.id === mission.id) {
+        this.currentMission = null;
+      }
+    });
+
+    // Execution events
+    this.eventBus.on('execution:warnings', async (event) => {
+      const { warnings } = event as unknown as { warnings: string[] };
+      this.logger.warn('Execution warnings', { count: warnings.length, warnings });
+    });
+  }
+
+  /**
+   * Shutdown the core
+   */
+  async shutdown(): AsyncResult<void> {
+    this.logger.info('Shutting down AlterCode Core');
+
+    try {
+      // Cancel any active mission
+      if (this.currentMission) {
+        await this.missionManager.cancel(this.currentMission.id, 'Core shutdown');
+      }
+
+      // Emit shutdown event
+      await this.eventBus.emit('core:shutdown', {});
+
+      this.initialized = false;
+      this.logger.info('AlterCode Core shutdown complete');
+
+      return Ok(undefined);
+    } catch (error) {
+      this.logger.error('Shutdown failed', error as Error);
+      return Err(new AppError('CORE', `Shutdown failed: ${(error as Error).message}`));
+    }
+  }
+}
+
+/**
+ * Create AlterCode Core instance
+ */
+export function createAlterCodeCore(
+  container: IServiceContainer,
+  config: AlterCodeConfig
+): AlterCodeCore {
+  return new AlterCodeCore(container, config);
 }

@@ -4,7 +4,18 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/test'],
   testMatch: ['**/*.test.ts'],
-  moduleFileExtensions: ['ts', 'js', 'json'],
+  moduleNameMapper: {
+    '^@types/(.*)$': '<rootDir>/src/types/$1',
+    '^@infrastructure/(.*)$': '<rootDir>/src/infrastructure/$1',
+    '^@knowledge/(.*)$': '<rootDir>/src/knowledge/$1',
+    '^@context/(.*)$': '<rootDir>/src/context/$1',
+    '^@verification/(.*)$': '<rootDir>/src/verification/$1',
+    '^@protocol/(.*)$': '<rootDir>/src/protocol/$1',
+    '^@execution/(.*)$': '<rootDir>/src/execution/$1',
+    '^@integration/(.*)$': '<rootDir>/src/integration/$1',
+    '^@ui/(.*)$': '<rootDir>/src/ui/$1',
+    '^@core/(.*)$': '<rootDir>/src/core/$1',
+  },
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
@@ -14,27 +25,11 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   coverageThreshold: {
     global: {
-      branches: 50,
-      functions: 50,
-      lines: 50,
-      statements: 50,
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70,
     },
   },
-  moduleNameMapper: {
-    '^vscode$': '<rootDir>/test/mocks/vscode.ts',
-  },
-  transform: {
-    '^.+\\.ts$': ['ts-jest', {
-      tsconfig: 'tsconfig.json',
-      isolatedModules: true,
-      diagnostics: {
-        ignoreCodes: [151002],
-      },
-    }],
-  },
-  setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
-  testTimeout: 10000,
   verbose: true,
-  forceExit: true,
-  detectOpenHandles: false,
 };
