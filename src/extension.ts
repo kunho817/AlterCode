@@ -631,6 +631,41 @@ function setupEventHandlers(): void {
     }
   });
 
+  // View details handler
+  eventBus.on('ui:viewDetails', async (event) => {
+    const { type, id } = event as { type: string; id: string };
+    outputChannel?.appendLine(`View details: ${type} ${id}`);
+    // Open appropriate view based on type
+    if (type === 'mission') {
+      vscode.commands.executeCommand('altercode.showMissionControl');
+    } else if (type === 'task') {
+      vscode.commands.executeCommand('altercode.showMissionControl');
+    } else if (type === 'agent') {
+      vscode.commands.executeCommand('altercode.showMissionControl');
+    }
+  });
+
+  // Agent control handlers (not fully implemented - agents run to completion)
+  eventBus.on('ui:pauseAgent', async (event) => {
+    const { agentId } = event as { agentId: string };
+    outputChannel?.appendLine(`Pause agent requested: ${agentId}`);
+    vscode.window.showInformationMessage('Agent pause/resume not yet implemented. Agents run to completion.');
+  });
+
+  eventBus.on('ui:resumeAgent', async (event) => {
+    const { agentId } = event as { agentId: string };
+    outputChannel?.appendLine(`Resume agent requested: ${agentId}`);
+  });
+
+  eventBus.on('ui:pauseAllAgents', async () => {
+    outputChannel?.appendLine('Pause all agents requested');
+    vscode.window.showInformationMessage('Agent pause/resume not yet implemented. Use mission pause instead.');
+  });
+
+  eventBus.on('ui:resumeAllAgents', async () => {
+    outputChannel?.appendLine('Resume all agents requested');
+  });
+
   // Pause mission
   eventBus.on('ui:pauseMission', async (event) => {
     const { missionId } = event as unknown as { missionId: string };
@@ -820,7 +855,7 @@ function setupEventHandlers(): void {
     }
   });
 
-  // Refresh performance stats
+  // Refresh performance stats (both event names for compatibility)
   eventBus.on('ui:refreshPerformance', async () => {
     if (core) {
       const panel = MissionControlPanel.currentPanel;
@@ -830,9 +865,18 @@ function setupEventHandlers(): void {
     }
   });
 
-  // View approval diff
-  eventBus.on('ui:viewApprovalDiff', async (event) => {
-    const { approvalId } = event as unknown as { approvalId: string };
+  eventBus.on('ui:getPerformance', async () => {
+    if (core) {
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    }
+  });
+
+  // View approval diff handler
+  const handleViewApprovalDiff = async (event: unknown) => {
+    const { approvalId } = event as { approvalId: string };
     if (!core || !approvalUI) return;
     try {
       const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
@@ -848,11 +892,14 @@ function setupEventHandlers(): void {
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to view approval: ${(error as Error).message}`);
     }
-  });
+  };
+  // Register both event names for compatibility
+  eventBus.on('ui:viewApprovalDiff', handleViewApprovalDiff);
+  eventBus.on('ui:viewDiff', handleViewApprovalDiff);
 
-  // Approve approval request
-  eventBus.on('ui:approveApproval', async (event) => {
-    const { approvalId } = event as unknown as { approvalId: string };
+  // Approve approval request handler
+  const handleApproveApproval = async (event: unknown) => {
+    const { approvalId } = event as { approvalId: string };
     if (!core) return;
     try {
       const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
@@ -875,11 +922,14 @@ function setupEventHandlers(): void {
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to approve: ${(error as Error).message}`);
     }
-  });
+  };
+  // Register both event names for compatibility
+  eventBus.on('ui:approveApproval', handleApproveApproval);
+  eventBus.on('ui:approveChange', handleApproveApproval);
 
-  // Reject approval request
-  eventBus.on('ui:rejectApproval', async (event) => {
-    const { approvalId } = event as unknown as { approvalId: string };
+  // Reject approval request handler
+  const handleRejectApproval = async (event: unknown) => {
+    const { approvalId } = event as { approvalId: string };
     if (!core) return;
     try {
       const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
@@ -902,7 +952,10 @@ function setupEventHandlers(): void {
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to reject: ${(error as Error).message}`);
     }
-  });
+  };
+  // Register both event names for compatibility
+  eventBus.on('ui:rejectApproval', handleRejectApproval);
+  eventBus.on('ui:rejectChange', handleRejectApproval);
 
   // Log core events
   eventBus.on('mission:created', async (event) => {
