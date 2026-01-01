@@ -156,21 +156,30 @@
     "configuration": {
       "title": "AlterCode",
       "properties": {
-        "altercode.llm.provider": {
-          "type": "string",
-          "enum": ["claude", "openai"],
-          "default": "claude",
-          "description": "LLM provider to use"
-        },
-        "altercode.llm.apiKey": {
+        "altercode.claude.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key for the LLM provider"
+          "description": "API key for Claude (used for higher-tier agents: Sovereign, Overlord, Lord)"
         },
-        "altercode.llm.model": {
+        "altercode.claude.model": {
+          "type": "string",
+          "default": "claude-opus-4-5-20251101",
+          "description": "Claude model to use for higher-tier agents"
+        },
+        "altercode.glm.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Specific model to use (leave empty for default)"
+          "description": "API key for GLM (used for Worker tier agents)"
+        },
+        "altercode.glm.model": {
+          "type": "string",
+          "default": "glm-4.7",
+          "description": "GLM model to use for Worker tier agents"
+        },
+        "altercode.glm.endpoint": {
+          "type": "string",
+          "default": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+          "description": "GLM API endpoint URL"
         },
         "altercode.maxContextTokens": {
           "type": "number",
