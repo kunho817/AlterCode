@@ -14,6 +14,7 @@ import {
   IEventBus,
   IApprovalService,
   MissionId,
+  TaskId,
   toFilePath,
 } from './types';
 
@@ -580,6 +581,279 @@ function setupEventHandlers(): void {
       if (panel) {
         panel.updateState(core.getState());
       }
+    }
+  });
+
+  // Pause mission
+  eventBus.on('ui:pauseMission', async (event) => {
+    const { missionId } = event as unknown as { missionId: string };
+    if (!core) return;
+    try {
+      const missionManager = core.getService(SERVICE_TOKENS.MissionManager);
+      await missionManager.pause(missionId as MissionId);
+      vscode.window.showInformationMessage(`Mission paused: ${missionId}`);
+      // Refresh UI
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to pause mission: ${(error as Error).message}`);
+    }
+  });
+
+  // Resume mission
+  eventBus.on('ui:resumeMission', async (event) => {
+    const { missionId } = event as unknown as { missionId: string };
+    if (!core) return;
+    try {
+      const missionManager = core.getService(SERVICE_TOKENS.MissionManager);
+      await missionManager.resume(missionId as MissionId);
+      vscode.window.showInformationMessage(`Mission resumed: ${missionId}`);
+      // Refresh UI
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to resume mission: ${(error as Error).message}`);
+    }
+  });
+
+  // Clear completed missions
+  eventBus.on('ui:clearCompleted', async () => {
+    if (!core) return;
+    try {
+      const missionManager = core.getService(SERVICE_TOKENS.MissionManager);
+      const missions = missionManager.listAll();
+      let cleared = 0;
+      for (const mission of missions) {
+        if (mission.status === 'completed' || mission.status === 'failed' || mission.status === 'cancelled') {
+          // Remove from manager's internal tracking (archive)
+          cleared++;
+        }
+      }
+      vscode.window.showInformationMessage(`Cleared ${cleared} completed mission(s)`);
+      // Refresh UI
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to clear completed: ${(error as Error).message}`);
+    }
+  });
+
+  // Rollback mission
+  eventBus.on('ui:rollbackMission', async (event) => {
+    const { missionId } = event as unknown as { missionId: string };
+    if (!core) return;
+    try {
+      const rollbackService = core.getService(SERVICE_TOKENS.RollbackService);
+      const history = rollbackService.getHistory(missionId as MissionId);
+
+      if (history.length === 0) {
+        vscode.window.showWarningMessage('No rollback points available');
+        return;
+      }
+
+      // Get the latest rollback point
+      const latestPoint = history[history.length - 1];
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Rollback mission to point: ${latestPoint.description}?`,
+        { modal: true },
+        'Rollback'
+      );
+
+      if (confirm === 'Rollback') {
+        const result = await rollbackService.rollback(missionId as MissionId, latestPoint.id);
+        if (result.ok) {
+          vscode.window.showInformationMessage(`Rolled back ${result.value.filesRestored} file(s)`);
+        } else {
+          vscode.window.showErrorMessage(`Rollback failed: ${result.error.message}`);
+        }
+        // Refresh UI
+        const panel = MissionControlPanel.currentPanel;
+        if (panel) {
+          panel.updateState(core.getState());
+        }
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to rollback: ${(error as Error).message}`);
+    }
+  });
+
+  // Retry task
+  eventBus.on('ui:retryTask', async (event) => {
+    const { taskId } = event as unknown as { taskId: string };
+    if (!core) return;
+    try {
+      const taskManager = core.getService(SERVICE_TOKENS.TaskManager);
+      const task = taskManager.get(taskId as TaskId);
+
+      if (!task) {
+        vscode.window.showWarningMessage('Task not found');
+        return;
+      }
+
+      // Reset task status and retry
+      await taskManager.retry(taskId as TaskId);
+      vscode.window.showInformationMessage(`Retrying task: ${task.title}`);
+      // Refresh UI
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to retry task: ${(error as Error).message}`);
+    }
+  });
+
+  // View conflict diff
+  eventBus.on('ui:viewConflictDiff', async (event) => {
+    const { conflictId } = event as unknown as { conflictId: string };
+    if (!core) return;
+    try {
+      const mergeEngine = core.getService(SERVICE_TOKENS.MergeEngine);
+      const conflicts = mergeEngine.getActiveConflicts();
+      const conflict = conflicts.find(c => c.id === conflictId);
+
+      if (!conflict) {
+        vscode.window.showWarningMessage('Conflict not found');
+        return;
+      }
+
+      // Open the conflicting file
+      const uri = vscode.Uri.file(conflict.filePath as string);
+      await vscode.window.showTextDocument(uri);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to view conflict: ${(error as Error).message}`);
+    }
+  });
+
+  // Resolve conflict
+  eventBus.on('ui:resolveConflict', async (event) => {
+    const { conflictId, strategy } = event as unknown as { conflictId: string; strategy: 'auto' | 'ai' | 'manual' };
+    if (!core) return;
+    try {
+      const mergeEngine = core.getService(SERVICE_TOKENS.MergeEngine);
+      const conflicts = mergeEngine.getActiveConflicts();
+      const conflict = conflicts.find(c => c.id === conflictId);
+
+      if (!conflict) {
+        vscode.window.showWarningMessage('Conflict not found');
+        return;
+      }
+
+      if (strategy === 'manual') {
+        // Open file for manual editing
+        const uri = vscode.Uri.file(conflict.filePath as string);
+        await vscode.window.showTextDocument(uri);
+        vscode.window.showInformationMessage('Resolve the conflict markers in the file, then save.');
+      } else {
+        // Try automatic or AI resolution
+        const result = await mergeEngine.resolveConflict(conflict);
+
+        if (result.ok) {
+          await mergeEngine.applyResolution(result.value);
+          vscode.window.showInformationMessage(`Conflict resolved using ${result.value.strategy} strategy`);
+          updateConflictsStatusBar();
+        } else {
+          vscode.window.showErrorMessage(`Failed to resolve: ${result.error.message}`);
+        }
+      }
+      // Refresh UI
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to resolve conflict: ${(error as Error).message}`);
+    }
+  });
+
+  // Refresh performance stats
+  eventBus.on('ui:refreshPerformance', async () => {
+    if (core) {
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    }
+  });
+
+  // View approval diff
+  eventBus.on('ui:viewApprovalDiff', async (event) => {
+    const { approvalId } = event as unknown as { approvalId: string };
+    if (!core || !approvalUI) return;
+    try {
+      const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+      const approvals = approvalService.getPendingApprovals();
+      const approval = approvals.find(a => a.id === approvalId);
+
+      if (!approval) {
+        vscode.window.showWarningMessage('Approval not found');
+        return;
+      }
+
+      await approvalUI.showApprovalPrompt(approval);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to view approval: ${(error as Error).message}`);
+    }
+  });
+
+  // Approve approval request
+  eventBus.on('ui:approveApproval', async (event) => {
+    const { approvalId } = event as unknown as { approvalId: string };
+    if (!core) return;
+    try {
+      const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+      const result = await approvalService.respond(approvalId, {
+        approved: true,
+        action: 'approve',
+      });
+
+      if (result.ok) {
+        vscode.window.showInformationMessage('Changes approved');
+        updateApprovalsStatusBar();
+      } else {
+        vscode.window.showErrorMessage(`Failed to approve: ${result.error.message}`);
+      }
+      // Refresh UI
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to approve: ${(error as Error).message}`);
+    }
+  });
+
+  // Reject approval request
+  eventBus.on('ui:rejectApproval', async (event) => {
+    const { approvalId } = event as unknown as { approvalId: string };
+    if (!core) return;
+    try {
+      const approvalService = core.getService(SERVICE_TOKENS.ApprovalService);
+      const result = await approvalService.respond(approvalId, {
+        approved: false,
+        action: 'reject',
+      });
+
+      if (result.ok) {
+        vscode.window.showInformationMessage('Changes rejected');
+        updateApprovalsStatusBar();
+      } else {
+        vscode.window.showErrorMessage(`Failed to reject: ${result.error.message}`);
+      }
+      // Refresh UI
+      const panel = MissionControlPanel.currentPanel;
+      if (panel) {
+        panel.updateState(core.getState());
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to reject: ${(error as Error).message}`);
     }
   });
 

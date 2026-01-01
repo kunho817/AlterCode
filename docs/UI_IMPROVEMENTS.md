@@ -168,6 +168,56 @@ Systematic analysis of all backend services to ensure proper UI exposure.
 
 ---
 
+---
+
+## Phase 4: Functional Alignment Fixes
+
+Fixed misalignments between backend `getState()` output and UI expectations.
+
+### Issue: Data Shape Mismatches
+The UI expected full objects but the core was sending counts/minimal data.
+
+| Field | Before (Core) | After (Core) |
+|-------|---------------|--------------|
+| `pendingApprovals` | `number` count | Full `PendingApprovalEntry[]` array |
+| `conflicts` | `number` count | Full `ConflictEntry[]` array |
+| `activities` | Basic entries | Full entries with prompt, response, error, metrics |
+| `quota` | Basic status | Detailed with callCount, tokensSent, tokensReceived, byLevel |
+| `activeMissions` | Basic mission | With `rollbackPoints` count |
+| `performance` | Not sent | Full `PerformanceStat[]` array |
+
+### New Type Definitions (`src/types/extended.ts`)
+```typescript
+interface ActivityEntry {
+  id, agentId, level, status, prompt, response, error, duration, timestamp, metrics
+}
+interface PendingApprovalEntry {
+  id, taskId, missionId, changes[], mode, status, requestedAt
+}
+interface ConflictEntry {
+  id, filePath, branch1: {agentId}, branch2: {agentId}, conflictingRegions[]
+}
+interface PerformanceStat {
+  name, count, totalMs, avgMs, minMs, maxMs
+}
+```
+
+### New Event Handlers (`src/extension.ts`)
+Added 11 missing UI event handlers:
+- `ui:pauseMission` - Pause active mission
+- `ui:resumeMission` - Resume paused mission
+- `ui:clearCompleted` - Clear finished missions
+- `ui:rollbackMission` - Rollback with confirmation dialog
+- `ui:retryTask` - Retry failed task
+- `ui:viewConflictDiff` - Open conflict file in editor
+- `ui:resolveConflict` - Resolve with auto/ai/manual strategy
+- `ui:refreshPerformance` - Refresh performance stats
+- `ui:viewApprovalDiff` - Show approval in diff viewer
+- `ui:approveApproval` - Approve pending changes inline
+- `ui:rejectApproval` - Reject pending changes inline
+
+---
+
 ## Design Principles (Updated)
 
 1. **Minimal** - No decorative elements, only functional UI
@@ -177,3 +227,4 @@ Systematic analysis of all backend services to ensure proper UI exposure.
 5. **Developer-friendly** - Clean, professional appearance
 6. **Feature Complete** - All backend capabilities exposed in UI
 7. **Progressive Disclosure** - Details expandable, not overwhelming
+8. **Data Alignment** - UI and backend data shapes must match exactly

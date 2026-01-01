@@ -232,12 +232,62 @@ export {
 // Hive State
 // ============================================================================
 
+/** Activity entry for UI display */
+export interface ActivityEntry {
+  id: string;
+  agentId: string;
+  level?: string;
+  status: 'thinking' | 'completed' | 'failed';
+  prompt?: string;
+  response?: string;
+  error?: string;
+  duration?: number;
+  timestamp: Date;
+  metrics?: {
+    tokensSent?: number;
+    tokensReceived?: number;
+  };
+}
+
+/** Pending approval for UI display */
+export interface PendingApprovalEntry {
+  id: string;
+  taskId: string;
+  missionId: string;
+  changes: Array<{
+    filePath: string;
+    type: string;
+  }>;
+  mode: string;
+  status: string;
+  requestedAt: Date;
+}
+
+/** Conflict entry for UI display */
+export interface ConflictEntry {
+  id: string;
+  filePath: string;
+  branch1: { agentId: string };
+  branch2: { agentId: string };
+  conflictingRegions: unknown[];
+}
+
+/** Performance stat for UI display */
+export interface PerformanceStat {
+  name: string;
+  count: number;
+  totalMs: number;
+  avgMs: number;
+  minMs: number;
+  maxMs: number;
+}
+
 /** Application state */
 export interface HiveState {
   initialized: boolean;
   projectRoot: string;
   currentMission: Mission | null;
-  activeMissions: Mission[];
+  activeMissions: Array<Mission & { rollbackPoints?: number }>;
   stats: {
     missions: {
       total: number;
@@ -254,11 +304,19 @@ export interface HiveState {
       status: 'ok' | 'warning' | 'critical' | 'exceeded';
       usageRatio: number;
       timeUntilResetMs: number;
+      callCount?: number;
+      tokensSent?: number;
+      tokensReceived?: number;
+      byLevel?: Record<string, { calls: number; tokensSent: number; tokensReceived: number }>;
     };
     glm?: {
       status: 'ok' | 'warning' | 'critical' | 'exceeded';
       usageRatio: number;
       timeUntilResetMs: number;
+      callCount?: number;
+      tokensSent?: number;
+      tokensReceived?: number;
+      byLevel?: Record<string, { calls: number; tokensSent: number; tokensReceived: number }>;
     };
   };
   /** Agent activity summary (optional - only present when activity tracking enabled) */
@@ -271,12 +329,20 @@ export interface HiveState {
       timestamp: Date;
     }>;
   };
-  /** Pending approvals count (optional - only present when approval service enabled) */
-  pendingApprovals?: number;
+  /** Full activity entries for detailed UI display */
+  activities?: ActivityEntry[];
+  /** Pending approvals - full objects for UI display */
+  pendingApprovals?: PendingApprovalEntry[];
   /** Active virtual branches count (optional - only present when branch service enabled) */
   activeBranches?: number;
-  /** Active conflicts count (optional - only present when merge engine enabled) */
+  /** Active conflicts - full objects for UI display */
+  conflicts?: ConflictEntry[];
+  /** Active conflicts count (legacy - for backwards compatibility) */
   activeConflicts?: number;
+  /** Performance statistics */
+  performance?: {
+    stats: PerformanceStat[];
+  };
 }
 
 // ============================================================================

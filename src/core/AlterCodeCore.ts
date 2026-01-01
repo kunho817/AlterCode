@@ -362,44 +362,70 @@ export class AlterCodeCore {
     // Add quota status if tracker available
     if (this.quotaTracker) {
       const claudeStatus = this.quotaTracker.getStatus('claude');
+      const claudeWindow = claudeStatus.currentWindow;
       state.quota = {
         claude: {
           status: claudeStatus.status,
           usageRatio: claudeStatus.usageRatio,
           timeUntilResetMs: claudeStatus.timeUntilResetMs,
+          callCount: claudeWindow?.usage.callCount ?? 0,
+          tokensSent: claudeWindow?.usage.tokensSent ?? 0,
+          tokensReceived: claudeWindow?.usage.tokensReceived ?? 0,
+          byLevel: claudeWindow?.usage.byLevel ?? {},
         },
       };
 
       // Add GLM status if available
       try {
         const glmStatus = this.quotaTracker.getStatus('glm');
+        const glmWindow = glmStatus.currentWindow;
         state.quota.glm = {
           status: glmStatus.status,
           usageRatio: glmStatus.usageRatio,
           timeUntilResetMs: glmStatus.timeUntilResetMs,
+          callCount: glmWindow?.usage.callCount ?? 0,
+          tokensSent: glmWindow?.usage.tokensSent ?? 0,
+          tokensReceived: glmWindow?.usage.tokensReceived ?? 0,
+          byLevel: glmWindow?.usage.byLevel ?? {},
         };
       } catch {
         // GLM not tracked
       }
     }
 
-    // Add activity info if service available
+    // Add full activity entries if service available
     if (this.activityService) {
-      const recentEntries = this.activityService.getRecentEntries(10);
+      const recentEntries = this.activityService.getRecentEntries(50);
+      state.activities = recentEntries.map((e) => ({
+        id: e.id as string,
+        agentId: e.agentId as string,
+        level: e.level,
+        status: e.status,
+        prompt: e.prompt,
+        response: e.response,
+        error: e.error,
+        duration: e.duration,
+        timestamp: e.timestamp,
+        metrics: e.metrics,
+      }));
       state.activity = {
         activeCount: this.activityService.getActiveCount(),
-        recentEntries: recentEntries.map((e) => ({
-          id: e.id as string,
-          agentId: e.agentId as string,
-          status: e.status,
-          timestamp: e.timestamp,
-        })),
+        recentEntries: state.activities.slice(0, 10),
       };
     }
 
-    // Add pending approvals count if service available
+    // Add full pending approvals if service available
     if (this.approvalService) {
-      state.pendingApprovals = this.approvalService.getPendingApprovals().length;
+      const approvals = this.approvalService.getPendingApprovals();
+      state.pendingApprovals = approvals.map((a) => ({
+        id: a.id as string,
+        taskId: a.taskId as string,
+        missionId: a.missionId as string,
+        changes: a.changes,
+        mode: a.mode,
+        status: a.status,
+        requestedAt: a.requestedAt,
+      }));
     }
 
     // Add active branches count if service available
@@ -407,9 +433,40 @@ export class AlterCodeCore {
       state.activeBranches = this.branchService.getActiveBranches().length;
     }
 
-    // Add active conflicts count if merge engine available
+    // Add full conflicts if merge engine available
     if (this.mergeEngine) {
-      state.activeConflicts = this.mergeEngine.getActiveConflicts().length;
+      const conflicts = this.mergeEngine.getActiveConflicts();
+      state.conflicts = conflicts.map((c) => ({
+        id: c.id as string,
+        filePath: c.filePath as string,
+        branch1: { agentId: c.branch1.agentId as string },
+        branch2: { agentId: c.branch2.agentId as string },
+        conflictingRegions: c.conflictingRegions,
+      }));
+      state.activeConflicts = conflicts.length;
+    }
+
+    // Add performance stats if monitor available
+    if (this.performanceMonitor) {
+      const perfStats = this.performanceMonitor.getStats();
+      state.performance = {
+        stats: perfStats.map((s) => ({
+          name: s.name,
+          count: s.count,
+          totalMs: s.totalMs,
+          avgMs: s.avgMs,
+          minMs: s.minMs,
+          maxMs: s.maxMs,
+        })),
+      };
+    }
+
+    // Add rollback points count to missions
+    if (this.rollbackService && state.activeMissions) {
+      state.activeMissions = state.activeMissions.map((m) => ({
+        ...m,
+        rollbackPoints: this.rollbackService?.getHistory(m.id as MissionId).length ?? 0,
+      }));
     }
 
     return state;
