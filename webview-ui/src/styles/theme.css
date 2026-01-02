@@ -1,0 +1,91 @@
+/* AlterCode Theme System */
+/* Custom variables with VS Code fallbacks */
+
+:root {
+  /* Core colors - AlterCode primary palette */
+  --altercode-primary: var(--vscode-button-background, #0078d4);
+  --altercode-primary-hover: var(--vscode-button-hoverBackground, #106ebe);
+  --altercode-primary-foreground: var(--vscode-button-foreground, #ffffff);
+  --altercode-secondary: var(--vscode-button-secondaryBackground, #3a3d41);
+  --altercode-secondary-hover: var(--vscode-button-secondaryHoverBackground, #45494e);
+
+  /* Status colors */
+  --altercode-success: #4caf50;
+  --altercode-success-bg: rgba(76, 175, 80, 0.15);
+  --altercode-warning: #ff9800;
+  --altercode-warning-bg: rgba(255, 152, 0, 0.15);
+  --altercode-error: #f44336;
+  --altercode-error-bg: rgba(244, 67, 54, 0.15);
+  --altercode-info: #2196f3;
+  --altercode-info-bg: rgba(33, 150, 243, 0.15);
+
+  /* Backgrounds */
+  --altercode-background: var(--vscode-editor-background, #1e1e1e);
+  --altercode-header-bg: var(--vscode-titleBar-activeBackground, #3c3c3c);
+  --altercode-sidebar-bg: var(--vscode-sideBar-background, #252526);
+  --altercode-input-bg: var(--vscode-input-background, #3c3c3c);
+  --altercode-card-bg: var(--vscode-editor-background, #1e1e1e);
+  --altercode-hover: rgba(255, 255, 255, 0.05);
+
+  /* Text */
+  --altercode-text: var(--vscode-editor-foreground, #cccccc);
+  --altercode-text-muted: var(--vscode-descriptionForeground, #858585);
+  --altercode-text-link: var(--vscode-textLink-foreground, #3794ff);
+
+  /* Borders */
+  --altercode-border: var(--vscode-widget-border, #454545);
+  --altercode-border-light: rgba(255, 255, 255, 0.1);
+
+  /* Scrollbar */
+  --altercode-scrollbar: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+  --altercode-scrollbar-hover: var(--vscode-scrollbarSlider-hoverBackground, rgba(121, 121, 121, 0.7));
+
+  /* Chat specific */
+  --altercode-user-message-bg: var(--vscode-input-background, #3c3c3c);
+  --altercode-assistant-message-bg: transparent;
+  --altercode-code-bg: var(--vscode-textCodeBlock-background, #2d2d2d);
+  --altercode-thinking-bg: rgba(255, 255, 255, 0.03);
+
+  /* Quota indicator */
+  --altercode-quota-low: #4caf50;
+  --altercode-quota-medium: #ff9800;
+  --altercode-quota-high: #f44336;
+
+  /* Shadows */
+  --altercode-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --altercode-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* High Contrast Theme Override */
+@media (prefers-contrast: more) {
+  :root {
+    --altercode-border: var(--vscode-contrastBorder, #ffffff);
+    --altercode-hover: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Light theme detection */
+:root[data-vscode-theme-kind="vscode-light"] {
+  --altercode-hover: rgba(0, 0, 0, 0.05);
+  --altercode-border-light: rgba(0, 0, 0, 0.1);
+  --altercode-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --altercode-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Custom AlterCode themes (can be toggled via settings) */
+[data-altercode-theme="warm-dark"] {
+  --altercode-primary: #e07b39;
+  --altercode-primary-hover: #c56930;
+  --altercode-background: #1a1614;
+  --altercode-sidebar-bg: #221e1b;
+  --altercode-text: #e0d6cc;
+}
+
+[data-altercode-theme="cool-light"] {
+  --altercode-primary: #0366d6;
+  --altercode-primary-hover: #0256b9;
+  --altercode-background: #f6f8fa;
+  --altercode-sidebar-bg: #ffffff;
+  --altercode-text: #24292e;
+  --altercode-text-muted: #586069;
+}

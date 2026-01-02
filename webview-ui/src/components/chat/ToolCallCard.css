@@ -1,0 +1,101 @@
+.tool-call-card {
+  border: 1px solid var(--altercode-border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.tool-call-pending {
+  border-left: 3px solid var(--altercode-text-muted);
+}
+
+.tool-call-running {
+  border-left: 3px solid var(--altercode-info);
+}
+
+.tool-call-completed {
+  border-left: 3px solid var(--altercode-success);
+}
+
+.tool-call-failed {
+  border-left: 3px solid var(--altercode-error);
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: var(--altercode-hover);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-call-header:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.tool-call-icon {
+  font-size: 14px;
+}
+
+.tool-call-name {
+  flex: 1;
+  font-weight: 500;
+  font-family: monospace;
+  color: var(--altercode-text);
+}
+
+.tool-call-status {
+  font-size: 11px;
+  color: var(--altercode-text-muted);
+}
+
+.expand-icon {
+  font-size: 10px;
+  color: var(--altercode-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.tool-call-details {
+  padding: 12px;
+  background-color: var(--altercode-code-bg);
+  border-top: 1px solid var(--altercode-border);
+}
+
+.tool-call-section {
+  margin-bottom: 12px;
+}
+
+.tool-call-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--altercode-text-muted);
+}
+
+.section-content {
+  margin: 0;
+  padding: 8px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+}

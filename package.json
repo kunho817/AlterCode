@@ -165,23 +165,63 @@
         }
       ],
       "commandPalette": [
-        { "command": "altercode.showMissionControl" },
-        { "command": "altercode.newMission" },
-        { "command": "altercode.explainFile", "when": "editorIsOpen" },
-        { "command": "altercode.findIssues", "when": "editorIsOpen" },
-        { "command": "altercode.refactorSelection", "when": "editorHasSelection" },
-        { "command": "altercode.cancelExecution" },
-        { "command": "altercode.openSettings" },
-        { "command": "altercode.showOutput" },
-        { "command": "altercode.showPendingApprovals" },
-        { "command": "altercode.setApprovalMode" },
-        { "command": "altercode.showConflicts" },
-        { "command": "altercode.approveAll" },
-        { "command": "altercode.addToMission", "when": "editorIsOpen" },
-        { "command": "altercode.analyzeDependencies", "when": "editorIsOpen" },
-        { "command": "altercode.showMissionContext" },
-        { "command": "altercode.clearMissionContext" },
-        { "command": "altercode.explainSelection", "when": "editorHasSelection" }
+        {
+          "command": "altercode.showMissionControl"
+        },
+        {
+          "command": "altercode.newMission"
+        },
+        {
+          "command": "altercode.explainFile",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "altercode.findIssues",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "altercode.refactorSelection",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "altercode.cancelExecution"
+        },
+        {
+          "command": "altercode.openSettings"
+        },
+        {
+          "command": "altercode.showOutput"
+        },
+        {
+          "command": "altercode.showPendingApprovals"
+        },
+        {
+          "command": "altercode.setApprovalMode"
+        },
+        {
+          "command": "altercode.showConflicts"
+        },
+        {
+          "command": "altercode.approveAll"
+        },
+        {
+          "command": "altercode.addToMission",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "altercode.analyzeDependencies",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "altercode.showMissionContext"
+        },
+        {
+          "command": "altercode.clearMissionContext"
+        },
+        {
+          "command": "altercode.explainSelection",
+          "when": "editorHasSelection"
+        }
       ]
     },
     "keybindings": [
@@ -233,7 +273,10 @@
         },
         "altercode.claude.mode": {
           "type": "string",
-          "enum": ["api", "cli"],
+          "enum": [
+            "api",
+            "cli"
+          ],
           "default": "api",
           "description": "How to access Claude: 'api' for direct API with key, 'cli' for Claude Code CLI"
         },
@@ -274,13 +317,22 @@
         },
         "altercode.logLevel": {
           "type": "string",
-          "enum": ["debug", "info", "warn", "error"],
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
           "default": "info",
           "description": "Logging level"
         },
         "altercode.verification.strictness": {
           "type": "string",
-          "enum": ["strict", "standard", "lenient"],
+          "enum": [
+            "strict",
+            "standard",
+            "lenient"
+          ],
           "default": "standard",
           "description": "Verification strictness level"
         },
@@ -299,6 +351,11 @@
           "default": true,
           "description": "Show notification on quota warnings"
         },
+        "altercode.ui.useReactUI": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the new React-based UI (experimental)"
+        },
         "altercode.activity.maxDisplayEntries": {
           "type": "number",
           "default": 100,
@@ -311,7 +368,11 @@
         },
         "altercode.approval.defaultMode": {
           "type": "string",
-          "enum": ["full_automation", "step_by_step", "fully_manual"],
+          "enum": [
+            "full_automation",
+            "step_by_step",
+            "fully_manual"
+          ],
           "default": "step_by_step",
           "description": "Default approval mode for changes"
         }
@@ -320,8 +381,12 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "build": "npm run build:webview && npm run build:extension",
+    "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "build:webview": "cd webview-ui && npm run build",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "watch:webview": "cd webview-ui && npm run dev",
+    "dev": "concurrently \"npm run watch\" \"npm run watch:webview\"",
     "lint": "eslint src --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -337,6 +402,7 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "concurrently": "^8.2.2",
     "esbuild": "^0.19.10",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",

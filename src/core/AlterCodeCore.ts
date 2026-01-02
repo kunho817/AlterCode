@@ -280,6 +280,225 @@ export class AlterCodeCore {
   }
 
   /**
+   * Stream a message response
+   *
+   * Yields stream chunks for real-time UI updates:
+   * - text: Content tokens
+   * - thinking: Extended thinking content
+   * - tool_use: Tool call requests
+   * - tool_result: Tool execution results
+   * - usage: Token usage stats
+   * - error: Error information
+   * - done: Stream completion
+   */
+  async *streamMessage(
+    message: string,
+    options?: {
+      currentFile?: FilePath;
+      abortSignal?: AbortSignal;
+      enableThinking?: boolean;
+    }
+  ): AsyncGenerator<import('./streaming').StreamChunk> {
+    if (!this.initialized) {
+      const initResult = await this.initialize();
+      if (!initResult.ok) {
+        yield {
+          type: 'error',
+          code: 'INIT_ERROR',
+          message: initResult.error.message,
+          retryable: true,
+        };
+        return;
+      }
+    }
+
+    this.logger.info('Starting streaming message', { messageLength: message.length });
+
+    try {
+      // Get the LLM adapter
+      const llmAdapter = this.container.resolve(SERVICE_TOKENS.LLMAdapter);
+
+      // Parse intent for context
+      const intent = this.intentParser.parse(message, { currentFile: options?.currentFile });
+      await this.eventBus.emit('core:intentParsed', { intent });
+
+      // Build the prompt with context
+      const contextPrompt = await this.buildContextPrompt(message, intent, options?.currentFile);
+
+      // Create the LLM request
+      const request = {
+        prompt: contextPrompt,
+        systemPrompt: this.buildSystemPrompt(intent),
+        maxTokens: 4096,
+      };
+
+      // Stream from the LLM adapter
+      const stream = llmAdapter.stream(request);
+
+      let totalContent = '';
+
+      for await (const chunk of stream) {
+        // Check for abort
+        if (options?.abortSignal?.aborted) {
+          yield { type: 'done' };
+          return;
+        }
+
+        // Handle rate limits from the adapter
+        if ('error' in chunk && (chunk as any).error?.includes('rate limit')) {
+          const retryMatch = (chunk as any).error.match(/retry after (\d+)/i);
+          const retryAfterMs = retryMatch ? parseInt(retryMatch[1], 10) * 1000 : 60000;
+
+          yield {
+            type: 'rate_limit',
+            retryAfterMs,
+            provider: 'claude',
+          };
+
+          // Wait and retry
+          await this.delay(retryAfterMs);
+          continue;
+        }
+
+        // Yield text content
+        if (chunk.content) {
+          totalContent += chunk.content;
+          yield {
+            type: 'text',
+            content: chunk.content,
+          };
+        }
+
+        // Yield usage on completion
+        if (chunk.done && chunk.usage) {
+          yield {
+            type: 'usage',
+            promptTokens: chunk.usage.promptTokens,
+            completionTokens: chunk.usage.completionTokens,
+            totalTokens: chunk.usage.totalTokens,
+          };
+
+          // Update quota tracker
+          const quotaTracker = this.getOptionalService(SERVICE_TOKENS.QuotaTracker);
+          if (quotaTracker) {
+            quotaTracker.recordUsage('claude', 'lord', {
+              inputTokens: chunk.usage.promptTokens,
+              outputTokens: chunk.usage.completionTokens,
+            });
+          }
+        }
+      }
+
+      // Emit completion event
+      await this.eventBus.emit('core:streamCompleted', {
+        contentLength: totalContent.length,
+      });
+
+      yield { type: 'done' };
+    } catch (error) {
+      this.logger.error('Stream message failed', error as Error);
+
+      // Categorize the error
+      const errorMessage = (error as Error).message.toLowerCase();
+      let code = 'UNKNOWN_ERROR';
+      let retryable = true;
+
+      if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
+        code = 'RATE_LIMIT';
+      } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+        code = 'NETWORK_ERROR';
+      } else if (errorMessage.includes('timeout')) {
+        code = 'TIMEOUT';
+        retryable = true;
+      } else if (errorMessage.includes('token') && errorMessage.includes('limit')) {
+        code = 'CONTEXT_OVERFLOW';
+        retryable = false;
+      } else if (errorMessage.includes('api') || errorMessage.includes('key')) {
+        code = 'PROVIDER_ERROR';
+        retryable = false;
+      }
+
+      yield {
+        type: 'error',
+        code,
+        message: (error as Error).message,
+        retryable,
+      };
+    }
+  }
+
+  /**
+   * Build context-aware prompt for the LLM
+   */
+  private async buildContextPrompt(
+    message: string,
+    intent: UserIntent,
+    currentFile?: FilePath
+  ): Promise<string> {
+    const parts: string[] = [];
+
+    // Add current file context if available
+    if (currentFile) {
+      try {
+        const fileSystem = this.container.resolve(SERVICE_TOKENS.FileSystem);
+        const fileContent = await fileSystem.readFile(currentFile);
+        parts.push(`Current file: ${currentFile}\n\`\`\`\n${fileContent}\n\`\`\``);
+      } catch {
+        // File not readable, skip
+      }
+    }
+
+    // Add intent context - extract file targets
+    const fileTargets = intent.targets.filter((t) => t.type === 'file');
+    if (fileTargets.length > 0) {
+      parts.push(`Target files: ${fileTargets.map((t) => t.name).join(', ')}`);
+    }
+
+    // Add the user message
+    parts.push(`User request: ${message}`);
+
+    return parts.join('\n\n');
+  }
+
+  /**
+   * Build system prompt based on intent
+   */
+  private buildSystemPrompt(intent: UserIntent): string {
+    const basePrompt = `You are AlterCode, an AI coding assistant focused on reliability and verification.
+Your responses should be clear, accurate, and actionable.`;
+
+    switch (intent.type) {
+      case 'query':
+        return `${basePrompt}\nYou are answering a question about code. Be concise and precise.`;
+      case 'analyze':
+        return `${basePrompt}\nYou are analyzing code. Identify issues, patterns, and suggest improvements.`;
+      case 'create':
+      case 'modify':
+        return `${basePrompt}\nYou are helping write or modify code. Follow best practices and ensure correctness.`;
+      default:
+        return basePrompt;
+    }
+  }
+
+  /**
+   * Get optional service (returns undefined if not registered)
+   */
+  private getOptionalService<T>(token: ServiceToken<T>): T | undefined {
+    try {
+      return this.container.resolve(token);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Delay helper for rate limit handling
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
    * Create and start a mission
    */
   async createMission(config: MissionConfig): AsyncResult<Mission> {

@@ -29,6 +29,12 @@ import {
   createAlterCodeActionProvider,
 } from './ui';
 
+import {
+  WebviewProvider,
+  createWebviewProvider,
+  createChatHandler,
+} from './webview';
+
 // Global state
 let core: AlterCodeCore | undefined;
 let eventBus: IEventBus | undefined;
@@ -39,6 +45,7 @@ let statusBarMain: vscode.StatusBarItem | undefined;
 let statusBarQuota: vscode.StatusBarItem | undefined;
 let statusBarApprovals: vscode.StatusBarItem | undefined;
 let statusBarConflicts: vscode.StatusBarItem | undefined;
+let webviewProvider: WebviewProvider | undefined;
 
 /**
  * Extension activation
@@ -522,20 +529,57 @@ function registerCommands(context: vscode.ExtensionContext): void {
 function registerUIProviders(context: vscode.ExtensionContext): void {
   if (!core || !eventBus) return;
 
-  // Chat provider
-  const chatProvider = new ChatProvider(
-    context.extensionUri,
-    core,
-    eventBus,
-    core.getService(SERVICE_TOKENS.Logger)
-  );
+  // Check if React UI is enabled
+  const vsConfig = vscode.workspace.getConfiguration('altercode');
+  const useReactUI = vsConfig.get<boolean>('ui.useReactUI', false);
 
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      ChatProvider.viewType,
-      chatProvider
-    )
-  );
+  if (useReactUI) {
+    // New React-based UI
+    outputChannel?.appendLine('Using new React UI (experimental)');
+
+    webviewProvider = createWebviewProvider(
+      context.extensionUri,
+      eventBus as any // EventBus compatible
+    );
+
+    // Create chat handler for streaming
+    const chatHandler = createChatHandler(
+      core,
+      eventBus,
+      webviewProvider,
+      core.getService(SERVICE_TOKENS.Logger)
+    );
+
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        WebviewProvider.viewType,
+        webviewProvider
+      )
+    );
+
+    // Clean up on deactivation
+    context.subscriptions.push({
+      dispose: () => {
+        webviewProvider?.dispose();
+        webviewProvider = undefined;
+      },
+    });
+  } else {
+    // Legacy UI
+    const chatProvider = new ChatProvider(
+      context.extensionUri,
+      core,
+      eventBus,
+      core.getService(SERVICE_TOKENS.Logger)
+    );
+
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        ChatProvider.viewType,
+        chatProvider
+      )
+    );
+  }
 }
 
 /**
@@ -1170,6 +1214,39 @@ function setupEventHandlers(): void {
     };
     const action = result.approved ? 'approved' : (result.action ?? 'rejected');
     outputChannel?.appendLine(`Approval ${approvalId}: ${action}`);
+  });
+
+  // Handle approval responses from UI (connects to ApprovalService)
+  eventBus.on('approval:respond', async (event) => {
+    const { approvalId, action } = event as unknown as {
+      approvalId: string;
+      action: 'approve' | 'reject' | 'modify';
+    };
+    outputChannel?.appendLine(`UI approval response: ${approvalId} -> ${action}`);
+
+    try {
+      const approvalService = core?.getService(SERVICE_TOKENS.ApprovalService);
+      if (approvalService) {
+        const response = {
+          approved: action === 'approve',
+          action: action,
+          timestamp: new Date(),
+        };
+
+        // Convert string to ApprovalId (branded type)
+        const result = await approvalService.respond(
+          approvalId as unknown as import('./types').ApprovalId,
+          response as import('./types').ApprovalResponse
+        );
+
+        if (!result.ok) {
+          outputChannel?.appendLine(`Approval response failed: ${result.error.message}`);
+          vscode.window.showErrorMessage(`Failed to process approval: ${result.error.message}`);
+        }
+      }
+    } catch (error) {
+      outputChannel?.appendLine(`Approval response error: ${(error as Error).message}`);
+    }
   });
 
   eventBus.on('approval:timeout', async (event) => {

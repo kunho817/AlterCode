@@ -1,0 +1,53 @@
+.streaming-message {
+  animation: fadeIn 0.2s ease;
+}
+
+.streaming-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background-color: var(--altercode-info-bg);
+  color: var(--altercode-info);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.streaming-dot {
+  width: 6px;
+  height: 6px;
+  background-color: var(--altercode-info);
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+.thinking-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background-color: var(--altercode-thinking-bg);
+  border-radius: 6px;
+  border-left: 2px solid var(--altercode-primary);
+}
+
+.thinking-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--altercode-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

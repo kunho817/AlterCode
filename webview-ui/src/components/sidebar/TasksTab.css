@@ -1,0 +1,250 @@
+.tasks-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mission-header {
+  padding: 12px;
+  background-color: var(--altercode-hover);
+  border-radius: 8px;
+}
+
+.mission-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--altercode-text);
+  margin-bottom: 4px;
+}
+
+.mission-status {
+  font-size: 11px;
+  color: var(--altercode-text-muted);
+}
+
+.no-mission {
+  text-align: center;
+  padding: 20px;
+  color: var(--altercode-text-muted);
+}
+
+.no-mission p {
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--altercode-text-muted);
+}
+
+.section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background-color: var(--altercode-primary);
+  color: var(--altercode-primary-foreground);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Task Card */
+.task-card {
+  padding: 10px 12px;
+  background-color: var(--altercode-card-bg);
+  border: 1px solid var(--altercode-border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.task-card:last-child {
+  margin-bottom: 0;
+}
+
+.task-pending {
+  border-left: 3px solid var(--altercode-text-muted);
+}
+
+.task-in_progress {
+  border-left: 3px solid var(--altercode-info);
+}
+
+.task-completed {
+  border-left: 3px solid var(--altercode-success);
+}
+
+.task-failed {
+  border-left: 3px solid var(--altercode-error);
+}
+
+.task-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-status-icon {
+  font-size: 12px;
+}
+
+.task-title {
+  flex: 1;
+  font-size: 12px;
+  color: var(--altercode-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-level {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.task-level.worker {
+  background-color: var(--altercode-hover);
+  color: var(--altercode-text-muted);
+}
+
+.task-level.lord {
+  background-color: var(--altercode-info-bg);
+  color: var(--altercode-info);
+}
+
+.task-level.overlord {
+  background-color: var(--altercode-warning-bg);
+  color: var(--altercode-warning);
+}
+
+.task-level.sovereign {
+  background-color: var(--altercode-error-bg);
+  color: var(--altercode-error);
+}
+
+.task-progress {
+  margin-top: 8px;
+}
+
+.progress-bar {
+  height: 4px;
+  background-color: var(--altercode-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--altercode-primary);
+  transition: width 0.3s ease;
+}
+
+.progress-message {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--altercode-text-muted);
+}
+
+/* Approval Card */
+.approval-card {
+  padding: 12px;
+  background-color: var(--altercode-warning-bg);
+  border: 1px solid var(--altercode-warning);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.approval-card:last-child {
+  margin-bottom: 0;
+}
+
+.approval-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.approval-icon {
+  font-size: 14px;
+}
+
+.approval-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--altercode-text);
+}
+
+.approval-description {
+  font-size: 11px;
+  color: var(--altercode-text-muted);
+  margin-bottom: 6px;
+}
+
+.approval-changes {
+  font-size: 10px;
+  color: var(--altercode-warning);
+  margin-bottom: 10px;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-approve,
+.btn-reject,
+.btn-review {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.btn-approve {
+  background-color: var(--altercode-success);
+  color: white;
+}
+
+.btn-reject {
+  background-color: var(--altercode-error);
+  color: white;
+}
+
+.btn-review {
+  background-color: var(--altercode-secondary);
+  color: var(--altercode-text);
+}
+
+.btn-approve:hover,
+.btn-reject:hover,
+.btn-review:hover {
+  opacity: 0.9;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 20px;
+  color: var(--altercode-text-muted);
+  font-size: 12px;
+}
