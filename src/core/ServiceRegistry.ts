@@ -405,7 +405,7 @@ export function registerServices(
     if (config.llm?.provider === 'glm') {
       return createGLMAdapter(
         config.llm.apiKey ?? glmApiKey,
-        { model: config.glm?.model ?? 'glm-4' },
+        { model: config.glm?.model ?? 'glm-4.7' },
         container.resolve(SERVICE_TOKENS.Logger)
       );
     }
@@ -414,7 +414,7 @@ export function registerServices(
     if (glmApiKey && !claudeApiKey) {
       return createGLMAdapter(
         glmApiKey,
-        { model: config.glm?.model ?? 'glm-4' },
+        { model: config.glm?.model ?? 'glm-4.7' },
         container.resolve(SERVICE_TOKENS.Logger)
       );
     }

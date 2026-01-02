@@ -3,7 +3,7 @@
  *
  * Routes AI requests to appropriate models based on hierarchy level:
  * - Sovereign, Lord, Overlord → Claude Opus (strategic/tactical decisions)
- * - Worker → GLM-4 (code implementation tasks)
+ * - Worker → GLM-4.7 (code implementation tasks)
  *
  * Supports two Claude modes:
  * - API mode: Direct Anthropic API with API key
@@ -11,7 +11,7 @@
  *
  * Original design implementation:
  * - Non-Worker layers always use Opus for complex reasoning
- * - Worker layer uses GLM-4 for cost-effective code generation
+ * - Worker layer uses GLM-4.7 for cost-effective code generation
  */
 
 import {
@@ -73,7 +73,8 @@ export class HierarchyModelRouter implements ILLMAdapter {
   private readonly glmAdapter: ILLMAdapter;
 
   // Current context
-  private currentLevel: HierarchyLevel = 'worker';
+  // Default to sovereign for chat (uses Claude Opus)
+  private currentLevel: HierarchyLevel = 'sovereign';
 
   // Metrics
   private requestsByLevel: Record<HierarchyLevel, number> = {
@@ -113,10 +114,10 @@ export class HierarchyModelRouter implements ILLMAdapter {
     // Initialize GLM adapter for Worker level
     this.glmAdapter = new GLMAdapter(
       config.glmApiKey,
-      { model: 'glm-4' },
+      { model: 'glm-4.7' },
       this.logger
     );
-    this.logger?.info('Using GLM-4 for Worker level');
+    this.logger?.info('Using GLM-4.7 for Worker level');
   }
 
   /**
@@ -138,7 +139,7 @@ export class HierarchyModelRouter implements ILLMAdapter {
    * Get the appropriate adapter for current hierarchy level
    */
   private getAdapter(): ILLMAdapter {
-    // Worker uses GLM-4, all others use Claude Opus
+    // Worker uses GLM-4.7, all others use Claude Opus
     if (this.currentLevel === 'worker') {
       return this.glmAdapter;
     }
@@ -150,7 +151,7 @@ export class HierarchyModelRouter implements ILLMAdapter {
    */
   private getModelName(): string {
     if (this.currentLevel === 'worker') {
-      return 'glm-4';
+      return 'glm-4.7';
     }
     return 'claude-opus';
   }

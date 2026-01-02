@@ -277,6 +277,8 @@ export const MODEL_PROVIDER_MAP: Record<AIModel, ProviderType> = {
   'claude-haiku': 'claude',
   'glm-4': 'glm',
   'glm-4-flash': 'glm',
+  'glm-4.7': 'glm',
+  'glm-4.7-flash': 'glm',
 };
 
 /** Get provider type for model */
@@ -298,12 +300,12 @@ export const DEFAULT_CLAUDE_CONFIG: ClaudeAdapterConfig = {
   timeout: 300000, // 5 minutes
 };
 
-/** Default GLM configuration */
+/** Default GLM configuration (GLM-4.7: 200K context, 128K output) */
 export const DEFAULT_GLM_CONFIG: GLMAdapterConfig = {
   endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
   apiKey: '',
-  model: 'glm-4',
-  maxTokens: toTokenCount(4096),
+  model: 'glm-4.7',
+  maxTokens: toTokenCount(128000),
   temperature: 0.7,
   timeout: 60000, // 1 minute
 };
@@ -315,6 +317,8 @@ export const MODEL_CONTEXT_WINDOWS: Record<AIModel, TokenCount> = {
   'claude-haiku': toTokenCount(200000),
   'glm-4': toTokenCount(128000),
   'glm-4-flash': toTokenCount(128000),
+  'glm-4.7': toTokenCount(200000),
+  'glm-4.7-flash': toTokenCount(200000),
 };
 
 /** Model max output tokens */
@@ -324,4 +328,6 @@ export const MODEL_MAX_OUTPUT: Record<AIModel, TokenCount> = {
   'claude-haiku': toTokenCount(4096),
   'glm-4': toTokenCount(4096),
   'glm-4-flash': toTokenCount(4096),
+  'glm-4.7': toTokenCount(128000),
+  'glm-4.7-flash': toTokenCount(128000),
 };

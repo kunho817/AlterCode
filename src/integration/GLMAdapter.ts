@@ -1,7 +1,7 @@
 /**
  * GLM Adapter
  *
- * Adapter for Zhipu AI's GLM-4 API:
+ * Adapter for Zhipu AI's GLM-4.7 API:
  * - Message API integration
  * - Tool use support
  * - Streaming responses
@@ -29,7 +29,7 @@ import {
 const GLM_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
 /** Default model */
-const DEFAULT_MODEL = 'glm-4';
+const DEFAULT_MODEL = 'glm-4.7';
 
 /** Maximum retries */
 const MAX_RETRIES = 3;
@@ -47,7 +47,7 @@ interface GLMAdapterConfig extends LLMConfig {
 /**
  * GLM Adapter implementation
  *
- * Provides integration with Zhipu AI's GLM-4 models for Worker-level tasks.
+ * Provides integration with Zhipu AI's GLM-4.7 models for Worker-level tasks.
  */
 export class GLMAdapter implements ILLMAdapter {
   private readonly apiKey: string;
@@ -512,12 +512,12 @@ export function createGLMAdapter(
 }
 
 /**
- * Create GLM-4 Flash adapter (faster, cheaper model)
+ * Create GLM-4.7 Flash adapter (faster, cheaper model)
  */
 export function createGLMFlashAdapter(
   apiKey: string,
   config?: Partial<GLMAdapterConfig>,
   logger?: ILogger
 ): ILLMAdapter {
-  return new GLMAdapter(apiKey, { ...config, model: 'glm-4-flash' }, logger);
+  return new GLMAdapter(apiKey, { ...config, model: 'glm-4.7-flash' }, logger);
 }

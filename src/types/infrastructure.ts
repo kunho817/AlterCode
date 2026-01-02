@@ -628,8 +628,8 @@ export const DEFAULT_CONFIG: AlterCodeConfig = {
   glm: {
     endpoint: '',
     apiKey: '',
-    model: 'glm-4',
-    maxTokens: toTokenCount(4096),
+    model: 'glm-4.7',
+    maxTokens: toTokenCount(128000),
     temperature: 0.7,
   },
   verification: {

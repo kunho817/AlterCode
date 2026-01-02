@@ -47,7 +47,9 @@ export type AIModel =
   | 'claude-sonnet'
   | 'claude-haiku'
   | 'glm-4'
-  | 'glm-4-flash';
+  | 'glm-4-flash'
+  | 'glm-4.7'
+  | 'glm-4.7-flash';
 
 /** Agent status */
 export type AgentStatus =
