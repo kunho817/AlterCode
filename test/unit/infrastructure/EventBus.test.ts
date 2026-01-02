@@ -8,6 +8,10 @@ import { BaseEvent } from '../../../src/types';
 describe('EventBus', () => {
   let eventBus: EventBus;
 
+  afterEach(() => {
+    eventBus.clear();
+  });
+
   beforeEach(() => {
     eventBus = new EventBus();
   });

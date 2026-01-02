@@ -59,8 +59,10 @@ describe('ApprovalService', () => {
     service = new ApprovalService(eventBus);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     service.clearAll();
+    // Allow pending promises to settle before next test
+    await new Promise((resolve) => setImmediate(resolve));
   });
 
   describe('setApprovalMode / getApprovalMode', () => {
@@ -459,6 +461,8 @@ describe('ApprovalService', () => {
       expect(service.getPendingApprovals().length).toBe(2);
 
       service.clearAll();
+    // Allow pending promises to settle before next test
+    await new Promise((resolve) => setImmediate(resolve));
 
       expect(service.getPendingApprovals().length).toBe(0);
     });
