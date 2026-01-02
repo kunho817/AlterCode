@@ -781,11 +781,203 @@ Your responses should be clear, accurate, and actionable.`;
       return Ok({ response: `Failed to create mission: ${missionResult.error.message}` });
     }
 
-    // Return with mission for further execution
+    const mission = missionResult.value;
+
+    // Generate execution plan using Sovereign level agent
+    const planResult = await this.generateExecutionPlan(mission, intent, context);
+    if (!planResult.ok) {
+      return Ok({
+        response: `Mission created (${mission.id}) but planning failed: ${planResult.error.message}`,
+        mission,
+      });
+    }
+
+    // Execute the plan through the agent hierarchy
+    const executionResult = await this.executePlan(planResult.value);
+    if (!executionResult.ok) {
+      return Ok({
+        response: `Mission ${mission.id} execution failed: ${executionResult.error.message}. Changes have been rolled back.`,
+        mission,
+      });
+    }
+
+    // Return success with mission details
+    const result = executionResult.value;
+    const changesCount = result.changes?.length ?? 0;
     return Ok({
-      response: `I'll work on that. Mission created: ${missionResult.value.id}. Ready to plan the implementation.`,
-      mission: missionResult.value,
+      response: `Mission completed successfully! ${changesCount} file(s) modified.${
+        result.rollbackId ? ` Rollback ID: ${result.rollbackId}` : ''
+      }`,
+      mission,
     });
+  }
+
+  /**
+   * Generate execution plan from mission using Sovereign-level agent
+   * The Sovereign agent analyzes the mission and creates a structured plan
+   * with tasks that will be executed by lower-level agents.
+   */
+  private async generateExecutionPlan(
+    mission: Mission,
+    intent: UserIntent,
+    context?: { currentFile?: FilePath }
+  ): AsyncResult<ExecutionPlan> {
+    this.logger.info('Generating execution plan', { missionId: mission.id });
+
+    try {
+      // Get the LLM adapter (HierarchyModelRouter)
+      const llmAdapter = this.container.resolve(SERVICE_TOKENS.LLMAdapter);
+
+      // Set to Sovereign level for strategic planning
+      if (typeof (llmAdapter as any).setHierarchyLevel === 'function') {
+        (llmAdapter as any).setHierarchyLevel('sovereign');
+      }
+
+      // Build planning prompt for Sovereign agent
+      const planningPrompt = this.buildPlanningPrompt(mission, intent, context);
+
+      // Get plan from Sovereign agent
+      const response = await llmAdapter.complete({
+        prompt: planningPrompt,
+        systemPrompt: `You are a Sovereign-level AI agent responsible for strategic mission planning.
+Your task is to analyze the mission and break it down into executable tasks.
+
+Respond with a JSON plan containing tasks. Each task should have:
+- type: "analyze" | "plan" | "implement" | "review" | "test" | "fix"
+- description: What needs to be done
+- priority: "critical" | "high" | "normal" | "low"
+- relevantFiles: Array of file paths relevant to this task
+
+Return ONLY valid JSON in this format:
+{
+  "tasks": [
+    { "type": "analyze", "description": "...", "priority": "high", "relevantFiles": [] },
+    { "type": "implement", "description": "...", "priority": "normal", "relevantFiles": ["path/to/file.ts"] }
+  ]
+}`,
+        maxTokens: 2048,
+      });
+
+      if (!response.ok) {
+        return Err(response.error);
+      }
+
+      // Parse the plan from the response
+      const planTasks = this.parsePlanFromResponse(response.value.content);
+
+      const plan: ExecutionPlan = {
+        missionId: mission.id,
+        tasks: planTasks,
+      };
+
+      this.logger.info('Execution plan generated', {
+        missionId: mission.id,
+        taskCount: planTasks.length,
+      });
+
+      return Ok(plan);
+    } catch (error) {
+      this.logger.error('Plan generation failed', error as Error);
+      return Err(new AppError('PLANNING', `Failed to generate plan: ${(error as Error).message}`));
+    }
+  }
+
+  /**
+   * Build the planning prompt for Sovereign agent
+   */
+  private buildPlanningPrompt(
+    mission: Mission,
+    intent: UserIntent,
+    context?: { currentFile?: FilePath }
+  ): string {
+    const parts = [
+      `# Mission: ${mission.title}`,
+      ``,
+      `## Description`,
+      mission.description,
+      ``,
+      `## Intent Type: ${intent.type}`,
+      ``,
+    ];
+
+    if (intent.targets.length > 0) {
+      parts.push(`## Targets`);
+      intent.targets.forEach((t) => parts.push(`- ${t.type}: ${t.name}`));
+      parts.push(``);
+    }
+
+    if (intent.constraints.length > 0) {
+      parts.push(`## Constraints`);
+      intent.constraints.forEach((c) => parts.push(`- ${c.type}: ${c.value}`));
+      parts.push(``);
+    }
+
+    if (context?.currentFile) {
+      parts.push(`## Context`);
+      parts.push(`Current file: ${context.currentFile}`);
+      parts.push(``);
+    }
+
+    parts.push(`## Task`);
+    parts.push(`Analyze this mission and create an execution plan with specific tasks.`);
+    parts.push(`Break down the work into discrete steps that can be executed by worker agents.`);
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Parse execution tasks from LLM response
+   */
+  private parsePlanFromResponse(content: string): ExecutionPlan['tasks'] {
+    try {
+      // Try to extract JSON from the response
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        this.logger.warn('No JSON found in plan response, using default task');
+        return this.getDefaultTasks();
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!parsed.tasks || !Array.isArray(parsed.tasks)) {
+        return this.getDefaultTasks();
+      }
+
+      // Validate and normalize tasks
+      return parsed.tasks.map((task: any) => ({
+        type: task.type || 'implement',
+        description: task.description || 'Execute task',
+        priority: task.priority || 'normal',
+        relevantFiles: task.relevantFiles || [],
+        prompt: task.prompt,
+        dependencies: task.dependencies,
+      }));
+    } catch (error) {
+      this.logger.warn('Failed to parse plan JSON', { error: (error as Error).message });
+      return this.getDefaultTasks();
+    }
+  }
+
+  /**
+   * Get default tasks when plan parsing fails
+   */
+  private getDefaultTasks(): ExecutionPlan['tasks'] {
+    return [
+      {
+        type: 'analyze',
+        description: 'Analyze the codebase and understand current state',
+        priority: 'high',
+      },
+      {
+        type: 'implement',
+        description: 'Implement the requested changes',
+        priority: 'normal',
+      },
+      {
+        type: 'review',
+        description: 'Review changes for correctness and quality',
+        priority: 'normal',
+      },
+    ];
   }
 
   /**
