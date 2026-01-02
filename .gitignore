@@ -40,3 +40,6 @@ pids
 .altercode/
 *.db
 *.db-journal
+
+# Test workspace
+test-workspace/

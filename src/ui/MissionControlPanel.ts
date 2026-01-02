@@ -123,7 +123,10 @@ export class MissionControlPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+        localResourceRoots: [
+          vscode.Uri.joinPath(extensionUri, 'media'),
+          vscode.Uri.joinPath(extensionUri, 'out', 'webview'),
+        ],
       }
     );
 
@@ -500,10 +503,56 @@ export class MissionControlPanel {
   }
 
   /**
-   * Get HTML content for webview - Unified Mission Control Layout
-   * Clean, minimal design with integrated settings
+   * Get HTML content for webview - React-based Mission Control
+   * Loads the compiled React application from out/webview
    */
   private getHtmlContent(): string {
+    const webview = this.panel.webview;
+
+    // Get URIs for React app assets
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'webview', 'assets', 'main.js')
+    );
+    const styleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'webview', 'assets', 'main.css')
+    );
+
+    // Generate a nonce for CSP
+    const nonce = this.getNonce();
+
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource}; img-src ${webview.cspSource} data:;">
+    <link href="${styleUri}" rel="stylesheet" />
+    <title>AlterCode Mission Control</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script nonce="${nonce}" src="${scriptUri}"></script>
+  </body>
+</html>`;
+  }
+
+  /**
+   * Generate a nonce for Content Security Policy
+   */
+  private getNonce(): string {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+  }
+
+  /**
+   * Get legacy HTML content for webview - kept for reference/fallback
+   * This is the original inline HTML/CSS/JS implementation
+   */
+  private getLegacyHtmlContent(): string {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
