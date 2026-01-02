@@ -108,14 +108,16 @@ export class ClaudeCodeAdapter implements ILLMAdapter {
     const startTime = Date.now();
     this.requestCount++;
 
-    this.logger?.debug('Starting Claude Code stream', {
+    this.logger?.info('>>> ClaudeCodeAdapter.stream STARTING', {
       promptLength: request.prompt.length,
     });
 
     try {
       let totalContent = '';
 
+      this.logger?.info('>>> About to call streamCommand');
       for await (const chunk of this.streamCommand(request.prompt, request.systemPrompt)) {
+        this.logger?.info('>>> Got chunk from streamCommand', { chunkLength: chunk.length });
         totalContent += chunk;
         yield {
           content: chunk,
@@ -134,12 +136,12 @@ export class ClaudeCodeAdapter implements ILLMAdapter {
         },
       };
 
-      this.logger?.debug('Claude Code stream completed', {
+      this.logger?.info('>>> ClaudeCodeAdapter.stream COMPLETED', {
         duration: Date.now() - startTime,
         contentLength: totalContent.length,
       });
     } catch (error) {
-      this.logger?.error('Claude Code stream failed', error as Error);
+      this.logger?.error('>>> ClaudeCodeAdapter.stream FAILED', error as Error);
       throw new AppError('LLM', `Claude Code stream failed: ${(error as Error).message}`);
     }
   }
@@ -222,6 +224,7 @@ If you need to use a tool, respond with a JSON block like:
   private executeCommand(prompt: string, systemPrompt?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(prompt, systemPrompt);
+    this.logger?.info('>>> streamCommand starting', { args });
 
       this.logger?.debug('Executing claude command', { args: args.join(' ') });
 
@@ -276,6 +279,9 @@ If you need to use a tool, respond with a JSON block like:
       shell: isWindows, // Required on Windows to find executables in PATH
       windowsHide: true, // Hide console window on Windows
     });
+
+    // Close stdin immediately - required on Windows for process to complete
+    proc.stdin?.end();
 
     // Create async iterator from stdout
     const stdout = proc.stdout;
