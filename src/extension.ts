@@ -19,7 +19,7 @@ import {
 } from './types';
 
 import { bootstrap, SERVICE_TOKENS, AlterCodeCore } from './core';
-import { MissionControlPanel, ChatProvider, ApprovalUI, createApprovalUI } from './ui';
+import { MissionControlPanel, ChatProvider, ApprovalUI, createApprovalUI, ConflictResolutionPanel } from './ui';
 
 // Global state
 let core: AlterCodeCore | undefined;
@@ -435,76 +435,25 @@ function registerCommands(context: vscode.ExtensionContext): void {
     })
   );
 
-  // Show conflicts
+  // Show conflicts - Opens dedicated Conflict Resolution Panel
   context.subscriptions.push(
     vscode.commands.registerCommand('altercode.showConflicts', async () => {
-      if (!core) {
+      if (!core || !eventBus) {
         vscode.window.showErrorMessage('AlterCode is not initialized');
         return;
       }
 
       try {
         const mergeEngine = core.getService(SERVICE_TOKENS.MergeEngine);
-        const conflicts = mergeEngine.getActiveConflicts();
+        const logger = core.getService(SERVICE_TOKENS.Logger);
 
-        if (conflicts.length === 0) {
-          vscode.window.showInformationMessage('No active merge conflicts');
-          return;
-        }
-
-        // Show quick pick for conflicts
-        const items = conflicts.map((conflict) => ({
-          label: `$(git-merge) ${conflict.filePath}`,
-          description: `${conflict.conflictingRegions.length} conflicting region(s)`,
-          detail: `Agents: ${conflict.branch1.agentId} vs ${conflict.branch2.agentId}`,
-          conflict,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          title: 'Active Merge Conflicts',
-          placeHolder: 'Select a conflict to resolve',
-        });
-
-        if (selected) {
-          // Show resolution options
-          const resolutionItems = [
-            { label: '$(merge) Auto Resolve', description: 'Try automatic three-way merge', action: 'auto' as const },
-            { label: '$(code) View in Editor', description: 'Open file to manually resolve', action: 'manual' as const },
-          ];
-
-          const resolution = await vscode.window.showQuickPick(resolutionItems, {
-            title: `Resolve: ${selected.conflict.filePath}`,
-            placeHolder: 'Select resolution approach',
-          });
-
-          if (resolution) {
-            if (resolution.action === 'auto') {
-              // Try automatic resolution
-              const result = await mergeEngine.resolveConflict(selected.conflict);
-
-              if (result.ok) {
-                const strategy = result.value.strategy;
-                vscode.window.showInformationMessage(
-                  `Conflict resolved using ${strategy} strategy`
-                );
-
-                // Apply the resolution
-                await mergeEngine.applyResolution(result.value);
-                updateConflictsStatusBar();
-              } else {
-                vscode.window.showErrorMessage(`Failed to resolve: ${result.error.message}`);
-              }
-            } else {
-              // Open file for manual editing
-              const filePath = selected.conflict.filePath as string;
-              const uri = vscode.Uri.file(filePath);
-              await vscode.window.showTextDocument(uri);
-              vscode.window.showInformationMessage(
-                'Resolve the conflict markers in the file, then save.'
-              );
-            }
-          }
-        }
+        // Open the Conflict Resolution Panel
+        ConflictResolutionPanel.createOrShow(
+          context.extensionUri,
+          mergeEngine,
+          eventBus,
+          logger
+        );
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to show conflicts: ${(error as Error).message}`);
       }
