@@ -30,6 +30,17 @@ import {
 /** Check if running on Windows */
 const isWindows = process.platform === 'win32';
 
+/**
+ * Escape an argument for Windows cmd.exe
+ * Double quotes are escaped by doubling them
+ */
+function escapeWindowsArg(arg: string): string {
+  if (!isWindows) return arg;
+  // Wrap in double quotes and escape internal double quotes
+  return '"' + arg.replace(/"/g, '""') + '"';
+}
+
+
 /** Claude Code CLI configuration */
 export interface ClaudeCodeConfig {
   /** Path to claude CLI executable (default: 'claude') */
