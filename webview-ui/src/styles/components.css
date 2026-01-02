@@ -890,3 +890,178 @@
 .list-item:last-child { margin-bottom: 0; }
 .list-item-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-item-actions { display: flex; gap: 2px; }
+
+/* ===== HIERARCHY STATUS WIDGET ===== */
+.hierarchy-idle {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.hierarchy-ready {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.hierarchy-levels-preview {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+}
+
+.level-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.level-dot.sovereign { background: var(--sovereign); }
+.level-dot.overlord { background: var(--overlord); }
+.level-dot.lord { background: var(--lord); }
+.level-dot.worker { background: var(--worker); }
+.level-dot.pulsing { animation: pulse 1s infinite; }
+.level-dot.active { box-shadow: 0 0 6px 2px currentColor; }
+.level-dot.completed { opacity: 0.4; }
+
+.level-arrow {
+  font-size: 8px;
+  color: var(--text-muted);
+}
+
+.hierarchy-active {
+  border-left: 2px solid var(--warning);
+}
+
+.hierarchy-current {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.hierarchy-level-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.level-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.level-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.level-desc {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.hierarchy-model {
+  font-size: 10px;
+  text-align: right;
+}
+
+.model-label {
+  color: var(--text-muted);
+}
+
+.model-name {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.hierarchy-task {
+  font-size: 10px;
+  margin-bottom: 6px;
+  padding: 4px 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+}
+
+.task-label {
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.task-text {
+  color: var(--text-secondary);
+}
+
+.hierarchy-phase {
+  font-size: 10px;
+  margin-bottom: 8px;
+}
+
+.phase-label {
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.phase-name {
+  color: var(--info);
+  text-transform: capitalize;
+}
+
+.hierarchy-flow {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* ===== CHAT TYPING INDICATOR ===== */
+.chat-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  border-left: 2px solid var(--info);
+  margin-top: 8px;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--info);
+  animation: typing 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1); }
+}
+
+.typing-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.typing-agent {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.typing-model {
+  font-size: 9px;
+  color: var(--text-muted);
+}

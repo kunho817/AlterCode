@@ -1227,6 +1227,15 @@ function setupEventHandlers(): void {
     refreshPanel();
   });
 
+  // Hierarchy status updates
+  eventBus.on('hierarchy:statusUpdate', async (event) => {
+    const panel = MissionControlPanel.currentPanel;
+    if (panel && typeof (panel as any).updateHierarchyStatus === 'function') {
+      (panel as any).updateHierarchyStatus(event);
+    }
+  });
+
+
   eventBus.on('task:created', async () => {
     refreshPanel();
   });

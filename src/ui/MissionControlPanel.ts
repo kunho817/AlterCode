@@ -161,6 +161,23 @@ export class MissionControlPanel {
       payload: message,
     });
   }
+  /**
+   * Update hierarchy execution status
+   */
+  public updateHierarchyStatus(status: {
+    isExecuting: boolean;
+    activeLevel: string | null;
+    activeModel: string | null;
+    currentTask: string | null;
+    phase: string | null;
+    missionId: string | null;
+  }): void {
+    this.panel.webview.postMessage({
+      type: 'hierarchyStatusUpdate',
+      payload: status,
+    });
+  }
+
 
   /**
    * Handle messages from webview

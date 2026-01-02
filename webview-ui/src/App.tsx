@@ -21,6 +21,7 @@ import { ApprovalsWidget } from './components/widgets/ApprovalsWidget';
 import { ConflictsWidget } from './components/widgets/ConflictsWidget';
 import { AgentsWidget } from './components/widgets/AgentsWidget';
 import { PerformanceWidget } from './components/widgets/PerformanceWidget';
+import { HierarchyStatusWidget } from './components/widgets/HierarchyStatusWidget';
 
 // Navigation icons (simple Unicode/text icons)
 const NAV_ICONS: Record<Section, string> = {
@@ -175,6 +176,7 @@ function App() {
 
           {/* STATUS PANEL */}
           <aside className="status-panel">
+            <HierarchyStatusWidget />
             <QuotaWidget />
             <ApprovalsWidget />
             <ConflictsWidget />

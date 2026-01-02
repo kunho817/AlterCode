@@ -783,6 +783,16 @@ Your responses should be clear, accurate, and actionable.`;
 
     const mission = missionResult.value;
 
+    // Emit hierarchy status - starting execution
+    await this.eventBus.emit('hierarchy:statusUpdate', {
+      isExecuting: true,
+      activeLevel: 'sovereign',
+      activeModel: 'Claude Opus',
+      currentTask: 'Strategic Planning',
+      phase: 'planning',
+      missionId: mission.id,
+    });
+
     // Generate execution plan using Sovereign level agent
     const planResult = await this.generateExecutionPlan(mission, intent, context);
     if (!planResult.ok) {
@@ -803,6 +813,16 @@ Your responses should be clear, accurate, and actionable.`;
 
     // Return success with mission details
     const result = executionResult.value;
+
+    // Emit hierarchy status - execution completed
+    await this.eventBus.emit('hierarchy:statusUpdate', {
+      isExecuting: false,
+      activeLevel: null,
+      activeModel: null,
+      currentTask: null,
+      phase: null,
+      missionId: null,
+    });
     const changesCount = result.changes?.length ?? 0;
     return Ok({
       response: `Mission completed successfully! ${changesCount} file(s) modified.${

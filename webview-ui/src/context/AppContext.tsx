@@ -20,8 +20,18 @@ import {
   ExtensionMessage,
   Section,
   ApprovalMode,
+  HierarchyStatus,
 } from '../types';
 import { actions } from '../hooks/useVSCodeAPI';
+// Default hierarchy status
+const defaultHierarchyStatus: HierarchyStatus = {
+  isExecuting: false,
+  activeLevel: null,
+  activeModel: null,
+  currentTask: null,
+  phase: null,
+  missionId: null,
+};
 
 // Initial state
 const initialState: AppState = {
@@ -36,6 +46,7 @@ const initialState: AppState = {
   performance: null,
   settings: {},
   approvalMode: 'step_by_step',
+  hierarchyStatus: defaultHierarchyStatus,
 };
 
 // Action types
@@ -52,6 +63,7 @@ type Action =
   | { type: 'APPROVALS_UPDATE'; payload: PendingApproval[] }
   | { type: 'CONFLICTS_UPDATE'; payload: Conflict[] }
   | { type: 'PERFORMANCE_UPDATE'; payload: PerformanceState }
+  | { type: 'HIERARCHY_STATUS_UPDATE'; payload: HierarchyStatus }
   | { type: 'CLEAR_CHAT' }
   | { type: 'SET_APPROVAL_MODE'; payload: ApprovalMode };
 
@@ -100,6 +112,9 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'PERFORMANCE_UPDATE':
       return { ...state, performance: action.payload };
+
+    case 'HIERARCHY_STATUS_UPDATE':
+      return { ...state, hierarchyStatus: action.payload };
 
     case 'CLEAR_CHAT':
       return { ...state, chatMessages: [] };
@@ -189,9 +204,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
 
         case 'performanceUpdate':
-          dispatch({ type: 'PERFORMANCE_UPDATE', payload: message.payload as PerformanceState });
-          break;
-
+dispatch({ type: 'PERFORMANCE_UPDATE', payload: message.payload as PerformanceState });          break;        case 'hierarchyStatusUpdate':          dispatch({ type: 'HIERARCHY_STATUS_UPDATE', payload: message.payload as HierarchyStatus });          break;
         case 'taskStarted':
         case 'taskCompleted':
         case 'warnings':
@@ -286,4 +299,9 @@ export function usePerformance() {
 export function useSettings() {
   const { state } = useApp();
   return state.settings;
+}
+
+export function useHierarchyStatus() {
+  const { state } = useApp();
+  return state.hierarchyStatus;
 }

@@ -200,6 +200,16 @@ export interface Settings {
 // Approval mode
 export type ApprovalMode = 'full_automation' | 'step_by_step' | 'fully_manual';
 
+// Hierarchy execution status
+export interface HierarchyStatus {
+  isExecuting: boolean;
+  activeLevel: AgentLevel | null;
+  activeModel: string | null;
+  currentTask: string | null;
+  phase: Phase | null;
+  missionId: string | null;
+}
+
 // App state
 export interface AppState {
   activeMissions: Mission[];
@@ -213,6 +223,7 @@ export interface AppState {
   performance: PerformanceState | null;
   settings: Settings;
   approvalMode: ApprovalMode;
+  hierarchyStatus: HierarchyStatus;
 }
 
 // Section types
