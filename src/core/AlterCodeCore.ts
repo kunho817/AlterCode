@@ -391,6 +391,15 @@ export class AlterCodeCore {
       } catch {
         // GLM not tracked
       }
+
+      // Add usage history
+      const quotaService = this.quotaTracker as { getUsageHistory?: (provider: string) => unknown[] };
+      if (quotaService.getUsageHistory) {
+        state.usageHistory = {
+          claude: quotaService.getUsageHistory('claude') ?? [],
+          glm: quotaService.getUsageHistory('glm') ?? [],
+        };
+      }
     }
 
     // Add full activity entries if service available

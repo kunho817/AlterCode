@@ -836,6 +836,74 @@ export class MissionControlPanel {
       border-radius: 50%;
     }
 
+    /* Usage History Chart */
+    .quota-history {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .quota-history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    .quota-history-chart {
+      height: 50px;
+      position: relative;
+    }
+    .chart-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 40px;
+      padding: 0 2px;
+    }
+    .chart-bar-group {
+      flex: 1;
+      display: flex;
+      gap: 1px;
+      align-items: flex-end;
+      height: 100%;
+    }
+    .chart-bar {
+      flex: 1;
+      min-width: 3px;
+      border-radius: 1px 1px 0 0;
+      transition: height 0.3s ease;
+    }
+    .chart-bar.claude { background: var(--sovereign); }
+    .chart-bar.glm { background: var(--worker); }
+    .chart-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 8px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .chart-legend {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 6px;
+      font-size: 9px;
+      color: var(--text-secondary);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .legend-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 2px;
+    }
+    .legend-dot.claude { background: var(--sovereign); }
+    .legend-dot.glm { background: var(--worker); }
+
     /* List Items */
     .list-item {
       display: flex;
@@ -1897,6 +1965,25 @@ export class MissionControlPanel {
               <div class="quota-levels" id="glmLevels"></div>
             </div>
           </div>
+          <!-- Usage History Chart -->
+          <div class="quota-history">
+            <div class="quota-history-header">
+              <span>Usage History</span>
+              <span class="text-muted" style="font-size: 9px;">Last hour</span>
+            </div>
+            <div class="quota-history-chart" id="usageHistoryChart">
+              <div class="chart-bars" id="chartBars"></div>
+              <div class="chart-labels">
+                <span>-60m</span>
+                <span>-30m</span>
+                <span>Now</span>
+              </div>
+            </div>
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-dot claude"></span>Claude</span>
+              <span class="legend-item"><span class="legend-dot glm"></span>GLM</span>
+            </div>
+          </div>
         </div>
 
         <!-- Approvals Widget -->
@@ -1978,6 +2065,7 @@ export class MissionControlPanel {
       tasks: [],
       activities: [],
       quota: null,
+      usageHistory: { claude: [], glm: [] },
       pendingApprovals: [],
       conflicts: [],
       agents: null,
@@ -2025,6 +2113,10 @@ export class MissionControlPanel {
         case 'quotaUpdate':
           state.quota = message.payload;
           updateQuotaUI();
+          break;
+        case 'usageHistoryUpdate':
+          state.usageHistory = message.payload;
+          updateUsageHistoryChart();
           break;
         case 'approvalsUpdate':
           state.pendingApprovals = message.payload;
@@ -2550,6 +2642,50 @@ export class MissionControlPanel {
       if (el) el.classList.toggle('hidden');
     }
 
+    function updateUsageHistoryChart() {
+      const history = state.usageHistory || { claude: [], glm: [] };
+      const chartBars = document.getElementById('chartBars');
+
+      // Determine number of bars (max 12 time slots)
+      const maxSlots = 12;
+      const claudeHistory = history.claude || [];
+      const glmHistory = history.glm || [];
+
+      // If no history, show placeholder
+      if (claudeHistory.length === 0 && glmHistory.length === 0) {
+        chartBars.innerHTML = Array(maxSlots).fill(0).map(() =>
+          \`<div class="chart-bar-group">
+            <div class="chart-bar claude" style="height: 2px;"></div>
+            <div class="chart-bar glm" style="height: 2px;"></div>
+          </div>\`
+        ).join('');
+        return;
+      }
+
+      // Normalize and render bars
+      const maxRatio = Math.max(
+        ...claudeHistory.map(h => h.usageRatio || 0),
+        ...glmHistory.map(h => h.usageRatio || 0),
+        0.1  // Minimum to avoid division by zero
+      );
+
+      const bars = [];
+      for (let i = 0; i < maxSlots; i++) {
+        const claudeEntry = claudeHistory[i];
+        const glmEntry = glmHistory[i];
+
+        const claudeHeight = claudeEntry ? Math.max(2, (claudeEntry.usageRatio / maxRatio) * 100) : 2;
+        const glmHeight = glmEntry ? Math.max(2, (glmEntry.usageRatio / maxRatio) * 100) : 2;
+
+        bars.push(\`<div class="chart-bar-group">
+          <div class="chart-bar claude" style="height: \${claudeHeight}%;" title="Claude: \${claudeEntry ? (claudeEntry.usageRatio * 100).toFixed(0) : 0}%"></div>
+          <div class="chart-bar glm" style="height: \${glmHeight}%;" title="GLM: \${glmEntry ? (glmEntry.usageRatio * 100).toFixed(0) : 0}%"></div>
+        </div>\`);
+      }
+
+      chartBars.innerHTML = bars.join('');
+    }
+
     function formatTimeRemaining(ms) {
       if (!ms || ms <= 0) return '0:00';
       const hours = Math.floor(ms / 3600000);
@@ -2706,6 +2842,7 @@ export class MissionControlPanel {
       updateActivityUI();
       updateAgentsUI();
       updateQuotaUI();
+      updateUsageHistoryChart();
       updateApprovalsUI();
       updateConflictsUI();
       updatePerformanceUI();

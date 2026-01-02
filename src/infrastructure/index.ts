@@ -49,6 +49,7 @@ export { StorageManager, createStorageManager } from './StorageManager';
 export {
   QuotaTrackerService,
   createQuotaTrackerService,
+  type UsageHistoryEntry,
 } from './QuotaTrackerService';
 
 // Performance Monitor

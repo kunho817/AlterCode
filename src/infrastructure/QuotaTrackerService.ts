@@ -30,6 +30,22 @@ import {
   Ok,
 } from '../types';
 
+/** Usage history entry for tracking over time */
+export interface UsageHistoryEntry {
+  timestamp: Date;
+  provider: AIProvider;
+  callCount: number;
+  tokensSent: number;
+  tokensReceived: number;
+  usageRatio: number;
+}
+
+/** Maximum history entries to keep per provider */
+const MAX_HISTORY_ENTRIES = 12;
+
+/** Minimum interval between history entries (5 minutes) */
+const HISTORY_INTERVAL_MS = 5 * 60 * 1000;
+
 /**
  * Quota Tracker Service Implementation
  *
@@ -42,6 +58,12 @@ export class QuotaTrackerService implements IQuotaTrackerService {
 
   /** Quota windows per provider */
   private windows: Map<AIProvider, QuotaWindow> = new Map();
+
+  /** Usage history per provider */
+  private usageHistory: Map<AIProvider, UsageHistoryEntry[]> = new Map();
+
+  /** Last history recording time per provider */
+  private lastHistoryTime: Map<AIProvider, number> = new Map();
 
   /** Providers to track */
   private readonly providers: AIProvider[] = ['claude', 'glm'];
@@ -119,6 +141,9 @@ export class QuotaTrackerService implements IQuotaTrackerService {
       totalCalls: window.usage.callCount,
     });
 
+    // Record history entry if enough time has passed
+    this.maybeRecordHistory(provider, window);
+
     // Check thresholds and emit events
     const status = this.getStatus(provider);
 
@@ -186,6 +211,76 @@ export class QuotaTrackerService implements IQuotaTrackerService {
       statuses.set(provider, this.getStatus(provider));
     }
     return statuses;
+  }
+
+  /**
+   * Get usage history for a provider
+   */
+  getUsageHistory(provider: AIProvider): UsageHistoryEntry[] {
+    return this.usageHistory.get(provider) ?? [];
+  }
+
+  /**
+   * Get usage history for all providers
+   */
+  getAllUsageHistory(): Map<AIProvider, UsageHistoryEntry[]> {
+    const history = new Map<AIProvider, UsageHistoryEntry[]>();
+    for (const provider of this.providers) {
+      history.set(provider, this.getUsageHistory(provider));
+    }
+    return history;
+  }
+
+  /**
+   * Record a history entry if enough time has passed
+   */
+  private maybeRecordHistory(provider: AIProvider, window: QuotaWindow): void {
+    const now = Date.now();
+    const lastTime = this.lastHistoryTime.get(provider) ?? 0;
+
+    // Only record if enough time has passed
+    if (now - lastTime < HISTORY_INTERVAL_MS) {
+      return;
+    }
+
+    const usageRatio = this.calculateUsageRatio(window);
+    const entry: UsageHistoryEntry = {
+      timestamp: new Date(),
+      provider,
+      callCount: window.usage.callCount,
+      tokensSent: window.usage.tokensSent,
+      tokensReceived: window.usage.tokensReceived,
+      usageRatio,
+    };
+
+    // Get or create history array
+    let history = this.usageHistory.get(provider);
+    if (!history) {
+      history = [];
+      this.usageHistory.set(provider, history);
+    }
+
+    // Add entry and trim to max size
+    history.push(entry);
+    if (history.length > MAX_HISTORY_ENTRIES) {
+      history.shift();
+    }
+
+    this.lastHistoryTime.set(provider, now);
+
+    // Emit history update event
+    this.eventBus.emit('quota:historyUpdated', {
+      type: 'quota:historyUpdated',
+      provider,
+      history: [...history],
+      timestamp: new Date(),
+    });
+
+    this.logger?.debug('Recorded usage history', {
+      provider,
+      entryCount: history.length,
+      usageRatio,
+    });
   }
 
   /**
