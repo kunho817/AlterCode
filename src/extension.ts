@@ -19,13 +19,22 @@ import {
 } from './types';
 
 import { bootstrap, SERVICE_TOKENS, AlterCodeCore } from './core';
-import { MissionControlPanel, ChatProvider, ApprovalUI, createApprovalUI, ConflictResolutionPanel } from './ui';
+import {
+  MissionControlPanel,
+  ChatProvider,
+  ApprovalUI,
+  createApprovalUI,
+  ConflictResolutionPanel,
+  AlterCodeActionProvider,
+  createAlterCodeActionProvider,
+} from './ui';
 
 // Global state
 let core: AlterCodeCore | undefined;
 let eventBus: IEventBus | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let approvalUI: ApprovalUI | undefined;
+let actionProvider: AlterCodeActionProvider | undefined;
 let statusBarMain: vscode.StatusBarItem | undefined;
 let statusBarQuota: vscode.StatusBarItem | undefined;
 let statusBarApprovals: vscode.StatusBarItem | undefined;
@@ -69,6 +78,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Register ApprovalUI
     registerApprovalUI(context);
+
+    // Register Code Action Provider for quick actions
+    registerActionProvider(context);
 
     // Set up event handlers
     setupEventHandlers();
@@ -542,6 +554,130 @@ function registerApprovalUI(context: vscode.ExtensionContext): void {
     outputChannel?.appendLine('ApprovalUI registered successfully');
   } catch (error) {
     outputChannel?.appendLine(`ApprovalUI registration skipped: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Register code action provider for quick actions
+ */
+function registerActionProvider(context: vscode.ExtensionContext): void {
+  if (!core || !eventBus) return;
+
+  try {
+    const semanticAnalyzer = core.getService(SERVICE_TOKENS.SemanticAnalyzer);
+    const logger = core.getService(SERVICE_TOKENS.Logger);
+
+    actionProvider = createAlterCodeActionProvider(semanticAnalyzer, eventBus, logger);
+
+    // Register as code action provider for all file types
+    context.subscriptions.push(
+      vscode.languages.registerCodeActionsProvider(
+        { scheme: 'file' },
+        actionProvider,
+        { providedCodeActionKinds: AlterCodeActionProvider.providedCodeActionKinds }
+      )
+    );
+
+    // Register quick action commands
+    context.subscriptions.push(
+      vscode.commands.registerCommand('altercode.addToMission', async (uri?: vscode.Uri, range?: vscode.Range) => {
+        if (!actionProvider) return;
+
+        // If called from command palette without args, use active editor
+        if (!uri) {
+          const editor = vscode.window.activeTextEditor;
+          if (!editor) {
+            vscode.window.showWarningMessage('No active editor');
+            return;
+          }
+          uri = editor.document.uri;
+          range = editor.selection;
+        }
+
+        await actionProvider.addToMission(uri, range);
+      })
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('altercode.analyzeDependencies', async (uri?: vscode.Uri, range?: vscode.Range) => {
+        if (!actionProvider) return;
+
+        if (!uri) {
+          const editor = vscode.window.activeTextEditor;
+          if (!editor) {
+            vscode.window.showWarningMessage('No active editor');
+            return;
+          }
+          uri = editor.document.uri;
+          range = editor.selection;
+        }
+
+        await actionProvider.analyzeDependencies(uri, range);
+      })
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('altercode.showMissionContext', async () => {
+        if (!actionProvider) return;
+
+        const context = actionProvider.getMissionContext();
+        if (context.length === 0) {
+          vscode.window.showInformationMessage('Mission context is empty');
+          return;
+        }
+
+        // Show as markdown document
+        let content = '# Mission Context\n\n';
+        content += `${context.length} item(s) in context:\n\n`;
+
+        for (const item of context) {
+          const fileName = item.filePath.split(/[\\/]/).pop();
+          content += `## ${fileName}\n`;
+          content += `Path: ${item.filePath}\n`;
+          if (item.selection) {
+            content += `Lines: ${item.selection.startLine}-${item.selection.endLine}\n`;
+          }
+          if (item.regions && item.regions.length > 0) {
+            content += `Regions: ${item.regions.map(r => r.name).join(', ')}\n`;
+          }
+          content += `Added: ${item.addedAt.toLocaleString()}\n\n`;
+        }
+
+        const doc = await vscode.workspace.openTextDocument({ content, language: 'markdown' });
+        await vscode.window.showTextDocument(doc, { preview: true });
+      })
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('altercode.clearMissionContext', () => {
+        if (!actionProvider) return;
+        actionProvider.clearMissionContext();
+      })
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('altercode.explainSelection', async (uri?: vscode.Uri, range?: vscode.Range) => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showWarningMessage('No active editor');
+          return;
+        }
+
+        const selection = range || editor.selection;
+        if (selection.isEmpty) {
+          vscode.window.showWarningMessage('No text selected');
+          return;
+        }
+
+        const text = editor.document.getText(selection);
+        vscode.window.showInformationMessage(`Explain selection feature - would analyze: ${text.substring(0, 50)}...`);
+        // TODO: Integrate with mission/chat system for actual explanation
+      })
+    );
+
+    outputChannel?.appendLine('AlterCodeActionProvider registered successfully');
+  } catch (error) {
+    outputChannel?.appendLine(`ActionProvider registration skipped: ${(error as Error).message}`);
   }
 }
 

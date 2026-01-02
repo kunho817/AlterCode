@@ -18,3 +18,11 @@ export { ApprovalUI, createApprovalUI } from './ApprovalUI';
 
 // Conflict Resolution Panel
 export { ConflictResolutionPanel, createConflictResolutionPanel } from './ConflictResolutionPanel';
+
+// Code Action Provider
+export {
+  AlterCodeActionProvider,
+  createAlterCodeActionProvider,
+  type MissionContextItem,
+  type DependencyAnalysis,
+} from './AlterCodeActionProvider';

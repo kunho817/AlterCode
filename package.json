@@ -90,6 +90,31 @@
         "command": "altercode.approveAll",
         "title": "Approve All Pending",
         "category": "AlterCode"
+      },
+      {
+        "command": "altercode.addToMission",
+        "title": "Add to Mission Context",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.analyzeDependencies",
+        "title": "Analyze Dependencies",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.showMissionContext",
+        "title": "Show Mission Context",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.clearMissionContext",
+        "title": "Clear Mission Context",
+        "category": "AlterCode"
+      },
+      {
+        "command": "altercode.explainSelection",
+        "title": "Explain Selection",
+        "category": "AlterCode"
       }
     ],
     "viewsContainers": {
@@ -124,6 +149,19 @@
           "command": "altercode.refactorSelection",
           "group": "altercode@3",
           "when": "editorHasSelection"
+        },
+        {
+          "command": "altercode.addToMission",
+          "group": "altercode@4"
+        },
+        {
+          "command": "altercode.analyzeDependencies",
+          "group": "altercode@5"
+        },
+        {
+          "command": "altercode.explainSelection",
+          "group": "altercode@6",
+          "when": "editorHasSelection"
         }
       ],
       "commandPalette": [
@@ -138,7 +176,12 @@
         { "command": "altercode.showPendingApprovals" },
         { "command": "altercode.setApprovalMode" },
         { "command": "altercode.showConflicts" },
-        { "command": "altercode.approveAll" }
+        { "command": "altercode.approveAll" },
+        { "command": "altercode.addToMission", "when": "editorIsOpen" },
+        { "command": "altercode.analyzeDependencies", "when": "editorIsOpen" },
+        { "command": "altercode.showMissionContext" },
+        { "command": "altercode.clearMissionContext" },
+        { "command": "altercode.explainSelection", "when": "editorHasSelection" }
       ]
     },
     "keybindings": [
@@ -151,6 +194,28 @@
         "command": "altercode.newMission",
         "key": "ctrl+shift+m",
         "mac": "cmd+shift+m"
+      },
+      {
+        "command": "altercode.addToMission",
+        "key": "ctrl+shift+q",
+        "mac": "cmd+shift+q",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "altercode.analyzeDependencies",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "altercode.showMissionContext",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c"
+      },
+      {
+        "command": "altercode.showConflicts",
+        "key": "ctrl+shift+g",
+        "mac": "cmd+shift+g"
       }
     ],
     "configuration": {
