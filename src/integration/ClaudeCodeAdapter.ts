@@ -330,11 +330,11 @@ If you need to use a tool, respond with a JSON block like:
 
     // Add system prompt if provided
     if (systemPrompt) {
-      args.push('--system-prompt', systemPrompt);
+      args.push('--system-prompt', escapeWindowsArg(systemPrompt));
     }
 
     // The prompt is passed as the last positional argument
-    args.push(prompt);
+    args.push(escapeWindowsArg(prompt));
 
     return args;
   }

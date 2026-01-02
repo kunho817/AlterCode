@@ -805,15 +805,8 @@ function setupEventHandlers(): void {
         for await (const chunk of streamGenerator) {
           switch (chunk.type) {
             case 'text':
+              // Accumulate content - will send complete message at 'done'
               fullContent += chunk.content;
-              // Send partial response to panel
-              panel.addChatMessage({
-                id: `stream-${Date.now()}`,
-                role: 'sovereign',
-                content: chunk.content,
-                timestamp: new Date(),
-                isPartial: true,
-              });
               break;
 
             case 'thinking':
