@@ -27,6 +27,9 @@ import {
   AppError,
 } from '../types';
 
+/** Check if running on Windows */
+const isWindows = process.platform === 'win32';
+
 /** Claude Code CLI configuration */
 export interface ClaudeCodeConfig {
   /** Path to claude CLI executable (default: 'claude') */
@@ -226,6 +229,8 @@ If you need to use a tool, respond with a JSON block like:
         cwd: this.config.workingDirectory,
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: this.config.timeout,
+        shell: isWindows, // Required on Windows to find executables in PATH
+        windowsHide: true, // Hide console window on Windows
       });
 
       let stdout = '';
@@ -268,6 +273,8 @@ If you need to use a tool, respond with a JSON block like:
     const proc: ChildProcess = spawn(this.config.cliPath, args, {
       cwd: this.config.workingDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: isWindows, // Required on Windows to find executables in PATH
+      windowsHide: true, // Hide console window on Windows
     });
 
     // Create async iterator from stdout
@@ -359,6 +366,8 @@ If you need to use a tool, respond with a JSON block like:
     return new Promise((resolve) => {
       const proc = spawn(this.config.cliPath, ['--version'], {
         stdio: ['pipe', 'pipe', 'pipe'],
+      shell: isWindows, // Required on Windows to find executables in PATH
+      windowsHide: true, // Hide console window on Windows
       });
 
       proc.on('close', (code: number | null) => {
@@ -384,6 +393,8 @@ If you need to use a tool, respond with a JSON block like:
     return new Promise((resolve) => {
       const proc = spawn(this.config.cliPath, ['--version'], {
         stdio: ['pipe', 'pipe', 'pipe'],
+      shell: isWindows, // Required on Windows to find executables in PATH
+      windowsHide: true, // Hide console window on Windows
       });
 
       let output = '';
