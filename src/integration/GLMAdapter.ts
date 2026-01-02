@@ -25,8 +25,8 @@ import {
   AppError,
 } from '../types';
 
-/** GLM API base URL */
-const GLM_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+/** GLM Coding API base URL */
+const GLM_API_URL = 'https://api.z.ai/api/coding/paas/v4/chat/completions';
 
 /** Default model */
 const DEFAULT_MODEL = 'glm-4.7';

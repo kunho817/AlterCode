@@ -302,7 +302,7 @@ export const DEFAULT_CLAUDE_CONFIG: ClaudeAdapterConfig = {
 
 /** Default GLM configuration (GLM-4.7: 200K context, 128K output) */
 export const DEFAULT_GLM_CONFIG: GLMAdapterConfig = {
-  endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+  endpoint: 'https://api.z.ai/api/coding/paas/v4/chat/completions',
   apiKey: '',
   model: 'glm-4.7',
   maxTokens: toTokenCount(128000),
