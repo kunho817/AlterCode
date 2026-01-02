@@ -294,6 +294,11 @@ If you need to use a tool, respond with a JSON block like:
     // Close stdin immediately - required on Windows for process to complete
     proc.stdin?.end();
 
+
+    // Capture stderr for error messages
+    let stderrOutput = '';
+    proc.stderr?.on('data', (d: Buffer) => { stderrOutput += d.toString(); });
+
     // Create async iterator from stdout
     const stdout = proc.stdout;
     if (!stdout) {
@@ -310,7 +315,7 @@ If you need to use a tool, respond with a JSON block like:
         if (code === 0) {
           resolve();
         } else {
-          reject(new Error(`Claude Code exited with code ${code}`));
+          reject(new Error(`Claude Code exited with code ${code}: ${stderrOutput}`));
         }
       });
 
