@@ -301,7 +301,7 @@ If you need to use a tool, respond with a JSON block like:
    */
   private buildArgs(prompt: string, systemPrompt?: string): string[] {
     const args: string[] = [
-      '--print', // Print output only, no interactive mode
+      '-p', // Print mode: output response and exit (non-interactive)
     ];
 
     // Add system prompt if provided
@@ -309,8 +309,8 @@ If you need to use a tool, respond with a JSON block like:
       args.push('--system-prompt', systemPrompt);
     }
 
-    // Add the prompt
-    args.push('--prompt', prompt);
+    // The prompt is passed as the last positional argument
+    args.push(prompt);
 
     return args;
   }
