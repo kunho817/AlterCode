@@ -774,6 +774,108 @@ function setupEventHandlers(): void {
     }
   });
 
+  // Chat message handler - process user messages from Mission Control
+  eventBus.on('ui:chatMessage', async (event) => {
+    const { content, timestamp } = event as { content: string; timestamp: Date };
+    if (!core) {
+      outputChannel?.appendLine('Chat message received but core not initialized');
+      return;
+    }
+
+    const panel = MissionControlPanel.currentPanel;
+    if (!panel) {
+      outputChannel?.appendLine('Chat message received but no panel');
+      return;
+    }
+
+    outputChannel?.appendLine(`Processing chat message: ${content.substring(0, 50)}...`);
+
+    try {
+      // Get current file context
+      const editor = vscode.window.activeTextEditor;
+      const currentFile = editor?.document.uri.fsPath;
+      const context = currentFile ? { currentFile: toFilePath(currentFile) } : {};
+
+      // Check if core supports streaming
+      if (typeof (core as any).streamMessage === 'function') {
+        // Use streaming API
+        const streamGenerator = (core as any).streamMessage(content, context);
+        let fullContent = '';
+
+        for await (const chunk of streamGenerator) {
+          switch (chunk.type) {
+            case 'text':
+              fullContent += chunk.content;
+              // Send partial response to panel
+              panel.addChatMessage({
+                id: `stream-${Date.now()}`,
+                role: 'sovereign',
+                content: chunk.content,
+                timestamp: new Date(),
+                isPartial: true,
+              });
+              break;
+
+            case 'thinking':
+              panel.addChatMessage({
+                id: `think-${Date.now()}`,
+                role: 'system',
+                content: `Thinking: ${chunk.content}`,
+                timestamp: new Date(),
+              });
+              break;
+
+            case 'done':
+              // Send final complete message
+              panel.addChatMessage({
+                id: `msg-${Date.now()}`,
+                role: 'sovereign',
+                content: fullContent,
+                timestamp: new Date(),
+              });
+              break;
+
+            case 'error':
+              panel.addChatMessage({
+                id: `err-${Date.now()}`,
+                role: 'system',
+                content: `Error: ${chunk.message}`,
+                timestamp: new Date(),
+              });
+              break;
+          }
+        }
+      } else {
+        // Fallback to blocking processMessage
+        const result = await core.processMessage(content, context);
+
+        if (result.ok) {
+          panel.addChatMessage({
+            id: `msg-${Date.now()}`,
+            role: 'sovereign',
+            content: result.value.response,
+            timestamp: new Date(),
+          });
+        } else {
+          panel.addChatMessage({
+            id: `err-${Date.now()}`,
+            role: 'system',
+            content: `Error: ${result.error.message}`,
+            timestamp: new Date(),
+          });
+        }
+      }
+    } catch (error) {
+      outputChannel?.appendLine(`Chat processing error: ${(error as Error).message}`);
+      panel.addChatMessage({
+        id: `err-${Date.now()}`,
+        role: 'system',
+        content: `Error processing message: ${(error as Error).message}`,
+        timestamp: new Date(),
+      });
+    }
+  });
+
   // Agent control handlers (not fully implemented - agents run to completion)
   eventBus.on('ui:pauseAgent', async (event) => {
     const { agentId } = event as { agentId: string };
@@ -1166,6 +1268,7 @@ function setupEventHandlers(): void {
       );
     }
     updateQuotaStatusBarDisplay();
+    refreshPanel(); // Update UI with quota changes
   });
 
   eventBus.on('quota:exceeded', async (event) => {
@@ -1178,6 +1281,7 @@ function setupEventHandlers(): void {
       `AlterCode: ${provider} API quota exceeded. Resets in ~${minutesUntilReset} minutes.`
     );
     updateQuotaStatusBarDisplay();
+    refreshPanel(); // Update UI with quota changes
   });
 
   eventBus.on('quota:reset', async (event) => {
@@ -1185,6 +1289,7 @@ function setupEventHandlers(): void {
     outputChannel?.appendLine(`Quota reset: ${provider}`);
     vscode.window.showInformationMessage(`AlterCode: ${provider} API quota has reset.`);
     updateQuotaStatusBarDisplay();
+    refreshPanel(); // Update UI with quota changes
   });
 
   // Approval events
@@ -1205,6 +1310,7 @@ function setupEventHandlers(): void {
       });
     }
     updateApprovalsStatusBar();
+    refreshPanel(); // Update UI with approval changes
   });
 
   eventBus.on('approval:responded', async (event) => {
@@ -1214,6 +1320,7 @@ function setupEventHandlers(): void {
     };
     const action = result.approved ? 'approved' : (result.action ?? 'rejected');
     outputChannel?.appendLine(`Approval ${approvalId}: ${action}`);
+    refreshPanel(); // Update UI after approval response
   });
 
   // Handle approval responses from UI (connects to ApprovalService)
@@ -1253,17 +1360,20 @@ function setupEventHandlers(): void {
     const { approvalId } = event as unknown as { approvalId: string };
     outputChannel?.appendLine(`Approval ${approvalId} timed out`);
     vscode.window.showWarningMessage('AlterCode: Approval request timed out. Changes were not applied.');
+    refreshPanel(); // Update UI after approval timeout
   });
 
   // Conflict events
   eventBus.on('conflict:detected', async (event) => {
     const { conflictId, filePath } = event as unknown as { conflictId: string; filePath: string };
     outputChannel?.appendLine(`Conflict detected in ${filePath}`);
+    refreshPanel(); // Update UI with new conflict
   });
 
   eventBus.on('conflict:resolved', async (event) => {
     const { conflictId, strategy } = event as unknown as { conflictId: string; strategy: string };
     outputChannel?.appendLine(`Conflict ${conflictId} resolved using ${strategy} strategy`);
+    refreshPanel(); // Update UI after conflict resolution
   });
 }
 

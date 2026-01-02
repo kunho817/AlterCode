@@ -152,6 +152,17 @@ export class MissionControlPanel {
   }
 
   /**
+   * Add a chat message to the UI
+   */
+  public addChatMessage(message: ChatMessage): void {
+    this.chatHistory.push(message);
+    this.panel.webview.postMessage({
+      type: 'chatMessage',
+      payload: message,
+    });
+  }
+
+  /**
    * Handle messages from webview
    */
   private handleMessage(message: any): void {
